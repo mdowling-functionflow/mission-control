@@ -13,6 +13,7 @@ import {
   Send,
   Sparkles,
   Users,
+  X,
 } from "lucide-react";
 
 import { SignedIn, SignedOut } from "@/auth/clerk";
@@ -80,9 +81,9 @@ export default function HomePage() {
             <div className="h-6 w-6 animate-spin rounded-full border-2 border-slate-300 border-t-slate-900" />
           </div>
         ) : (
-          <div className="flex h-full flex-col">
+          <div className="flex flex-col" style={{ height: "calc(100vh - 64px)" }}>
             {/* Thread area — scrollable */}
-            <div className="flex-1 overflow-y-auto">
+            <div className="flex-1 overflow-y-auto min-h-0">
               <div className="mx-auto max-w-2xl px-4 py-6 space-y-4">
                 {/* Quick actions strip */}
                 {overview && <QuickActions overview={overview} />}
@@ -107,9 +108,9 @@ export default function HomePage() {
             </div>
 
             {/* Composer — fixed at bottom */}
-            <div className="border-t" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
+            <div className="border-t shrink-0" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
               <div className="mx-auto max-w-2xl px-4 py-4">
-                <ComposerBar agents={agents} onCreated={loadData} />
+                <ComposerBar agents={agents} onCreated={loadData} showClear={tasks.length > 0} onClear={() => setTasks([])} />
               </div>
             </div>
           </div>
@@ -242,7 +243,7 @@ function ThreadItem({ task }: { task: ComposedTask }) {
 
 // ─── Composer Bar ────────────────────────────────────────────────────
 
-function ComposerBar({ agents, onCreated }: { agents: ExecutiveAgent[]; onCreated: () => void }) {
+function ComposerBar({ agents, onCreated, showClear, onClear }: { agents: ExecutiveAgent[]; onCreated: () => void; showClear?: boolean; onClear?: () => void }) {
   const [request, setRequest] = useState("");
   const [selectedAgents, setSelectedAgents] = useState<Set<string>>(new Set());
   const [collaborationMode, setCollaborationMode] = useState<string | null>(null);
@@ -401,6 +402,15 @@ function ComposerBar({ agents, onCreated }: { agents: ExecutiveAgent[]; onCreate
           />
         </div>
         <div className="flex gap-1.5 shrink-0 pb-1">
+          {showClear && onClear && (
+            <button
+              onClick={onClear}
+              className="rounded-xl p-2.5 transition-fast text-[color:var(--text-quiet)] hover:bg-[color:var(--surface-muted)]"
+              title="Clear thread"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          )}
           <button
             onClick={() => setShowAgents(!showAgents)}
             className={cn(

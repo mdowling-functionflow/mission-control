@@ -178,10 +178,12 @@ function ChatTab({ agent }: { agent: ExecutiveAgent }) {
   const [loading, setLoading] = useState(true);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
+  const [cleared, setCleared] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const loadMessages = () => {
+    if (cleared) return; // Don't refetch after clear
     api.chat.messages(agent.id).then(setMessages).catch(console.error).finally(() => setLoading(false));
   };
 
@@ -189,7 +191,7 @@ function ChatTab({ agent }: { agent: ExecutiveAgent }) {
     loadMessages();
     const iv = setInterval(loadMessages, 8_000);
     return () => clearInterval(iv);
-  }, [agent.id]);
+  }, [agent.id, cleared]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
@@ -202,6 +204,7 @@ function ChatTab({ agent }: { agent: ExecutiveAgent }) {
     // Clear input immediately (before async)
     setInput("");
     setSending(true);
+    setCleared(false); // Resume polling after sending
 
     try {
       const msg = await api.chat.send(agent.id, text);
@@ -218,8 +221,9 @@ function ChatTab({ agent }: { agent: ExecutiveAgent }) {
     }
   };
 
-  const handleClear = async () => {
+  const handleClear = () => {
     setMessages([]);
+    setCleared(true);
   };
 
   // Slash commands
