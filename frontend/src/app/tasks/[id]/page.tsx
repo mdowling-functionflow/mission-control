@@ -34,7 +34,7 @@ export default function TaskDetailPage() {
 
   if (loading) {
     return (
-      <DashboardPageLayout signedOut={{ message: "Sign in", forceRedirectUrl: "/dashboard" }} title="Task">
+      <DashboardPageLayout signedOut={{ message: "Sign in", forceRedirectUrl: "/home" }} title="Task">
         <div className="flex items-center justify-center py-20">
           <div className="h-6 w-6 animate-spin rounded-full border-2 border-slate-300 border-t-slate-900" />
         </div>
@@ -44,7 +44,7 @@ export default function TaskDetailPage() {
 
   if (!task) {
     return (
-      <DashboardPageLayout signedOut={{ message: "Sign in", forceRedirectUrl: "/dashboard" }} title="Task not found">
+      <DashboardPageLayout signedOut={{ message: "Sign in", forceRedirectUrl: "/home" }} title="Task not found">
         <div className="py-20 text-center text-slate-500">Task not found.</div>
       </DashboardPageLayout>
     );
@@ -55,7 +55,7 @@ export default function TaskDetailPage() {
 
   return (
     <DashboardPageLayout
-      signedOut={{ message: "Sign in", forceRedirectUrl: "/dashboard" }}
+      signedOut={{ message: "Sign in", forceRedirectUrl: "/home" }}
       title={task.title}
       description={task.task_type === "multi_agent" ? `${task.collaboration_mode} collaboration` : "Single agent task"}
       headerActions={

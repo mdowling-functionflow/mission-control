@@ -34,5 +34,13 @@ module.exports = {
       max_restarts: 5,
       restart_delay: 3000,
     },
+    {
+      name: "mc-tunnel",
+      script: "ngrok",
+      args: "http 8100 --url=narrativemission.ngrok.app",
+      interpreter: "none",
+      max_restarts: 5,
+      restart_delay: 5000,
+    },
   ],
 };

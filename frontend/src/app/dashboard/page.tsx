@@ -140,7 +140,7 @@ export default function OverviewPage() {
 
   return (
     <DashboardPageLayout
-      signedOut={{ message: "Sign in to access Mission Control", forceRedirectUrl: "/dashboard" }}
+      signedOut={{ message: "Sign in to access Mission Control", forceRedirectUrl: "/home" }}
       title="Overview"
       description="What matters now"
       headerActions={

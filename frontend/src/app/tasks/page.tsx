@@ -33,7 +33,7 @@ export default function TasksPage() {
 
   return (
     <DashboardPageLayout
-      signedOut={{ message: "Sign in to access Mission Control", forceRedirectUrl: "/dashboard" }}
+      signedOut={{ message: "Sign in to access Mission Control", forceRedirectUrl: "/home" }}
       title="Tasks"
       description="Track work across your executive team"
       headerActions={

@@ -28,7 +28,7 @@ export default function SkillsEditorPage() {
 
   return (
     <DashboardPageLayout
-      signedOut={{ message: "Sign in to access Mission Control", forceRedirectUrl: "/dashboard" }}
+      signedOut={{ message: "Sign in to access Mission Control", forceRedirectUrl: "/home" }}
       title="Skills"
       description="Browse and edit installed OpenClaw skills"
     >

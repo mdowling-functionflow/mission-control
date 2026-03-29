@@ -212,6 +212,22 @@ export interface ValidationResult {
   checks: Array<{ name: string; passed: boolean; message: string }>;
 }
 
+// ─── Document Types ──────────────────────────────────────────────────
+
+export interface DocumentItem {
+  id: string;
+  organization_id: string;
+  title: string;
+  content: string | null;
+  doc_type: string;
+  source_agent_id: string | null;
+  agent_display_name: string | null;
+  agent_avatar_emoji: string | null;
+  status: string;
+  created_at: string;
+  updated_at: string;
+}
+
 // ─── Task Composer Types ─────────────────────────────────────────────
 
 export interface TaskAssignmentInput {
@@ -353,6 +369,27 @@ export const api = {
       }),
     update: (id: string, data: Partial<Improvement>) =>
       execFetch<Improvement>(`/api/v1/improvements/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify(data),
+      }),
+  },
+
+  documents: {
+    list: (agentId?: string, docType?: string) => {
+      const params = new URLSearchParams();
+      if (agentId) params.set("source_agent_id", agentId);
+      if (docType) params.set("doc_type", docType);
+      const qs = params.toString();
+      return execFetch<DocumentItem[]>(`/api/v1/documents${qs ? `?${qs}` : ""}`);
+    },
+    get: (id: string) => execFetch<DocumentItem>(`/api/v1/documents/${id}`),
+    create: (data: { title: string; content?: string; doc_type?: string; source_agent_id?: string }) =>
+      execFetch<DocumentItem>("/api/v1/documents", {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+    update: (id: string, data: { title?: string; content?: string; status?: string }) =>
+      execFetch<DocumentItem>(`/api/v1/documents/${id}`, {
         method: "PATCH",
         body: JSON.stringify(data),
       }),

@@ -32,6 +32,7 @@ from app.api.task_custom_fields import router as task_custom_fields_router
 from app.api.tasks import router as tasks_router
 from app.api.users import router as users_router
 from app.api.composed_tasks import router as composed_tasks_router
+from app.api.documents import router as documents_router
 from app.api.executive_agents import router as executive_agents_router
 from app.api.global_approvals import router as global_approvals_router
 from app.api.skills_editor import router as skills_editor_router
@@ -566,6 +567,7 @@ api_v1.include_router(task_custom_fields_router)
 api_v1.include_router(tags_router)
 api_v1.include_router(users_router)
 api_v1.include_router(composed_tasks_router)
+api_v1.include_router(documents_router)
 api_v1.include_router(executive_agents_router)
 api_v1.include_router(global_approvals_router)
 api_v1.include_router(improvements_router)
