@@ -178,20 +178,23 @@ function ChatTab({ agent }: { agent: ExecutiveAgent }) {
   const [loading, setLoading] = useState(true);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
-  const [cleared, setCleared] = useState(false);
+  const [clearedAt, setClearedAt] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const loadMessages = () => {
-    if (cleared) return; // Don't refetch after clear
-    api.chat.messages(agent.id).then(setMessages).catch(console.error).finally(() => setLoading(false));
+    api.chat.messages(agent.id).then((all) => {
+      // Only show messages after the clear timestamp
+      const filtered = clearedAt ? all.filter((m) => m.created_at > clearedAt) : all;
+      setMessages(filtered);
+    }).catch(console.error).finally(() => setLoading(false));
   };
 
   useEffect(() => {
     loadMessages();
     const iv = setInterval(loadMessages, 8_000);
     return () => clearInterval(iv);
-  }, [agent.id, cleared]);
+  }, [agent.id, clearedAt]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
@@ -204,7 +207,7 @@ function ChatTab({ agent }: { agent: ExecutiveAgent }) {
     // Clear input immediately (before async)
     setInput("");
     setSending(true);
-    setCleared(false); // Resume polling after sending
+    // Keep clearedAt — only shows messages after clear point
 
     try {
       const msg = await api.chat.send(agent.id, text);
@@ -222,8 +225,8 @@ function ChatTab({ agent }: { agent: ExecutiveAgent }) {
   };
 
   const handleClear = () => {
+    setClearedAt(new Date().toISOString());
     setMessages([]);
-    setCleared(true);
   };
 
   // Slash commands

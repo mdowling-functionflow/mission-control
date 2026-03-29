@@ -10,6 +10,7 @@ import asyncio
 import json
 from typing import TYPE_CHECKING
 
+from app.core.config import settings
 from app.core.logging import get_logger
 from app.core.time import utcnow
 from app.models.composed_tasks import ComposedTask
@@ -72,7 +73,37 @@ async def dispatch_task(
 
 
 async def _exec_agent_cli(openclaw_agent_id: str, message: str) -> str | None:
-    """Execute an agent turn via the OpenClaw CLI."""
+    """Execute an agent turn. Routes through bridge if BRIDGE_URL set, else CLI."""
+    if settings.bridge_url:
+        return await _exec_via_bridge(openclaw_agent_id, message)
+    return await _exec_via_local_cli(openclaw_agent_id, message)
+
+
+async def _exec_via_bridge(openclaw_agent_id: str, message: str) -> str | None:
+    """Execute agent via the local bridge."""
+    import httpx
+    url = f"{settings.bridge_url.rstrip('/')}/chat"
+    headers = {"X-Bridge-Token": settings.bridge_token}
+    try:
+        async with httpx.AsyncClient(timeout=130.0) as client:
+            resp = await client.post(url, headers=headers, json={
+                "agent_id": openclaw_agent_id,
+                "message": message,
+            })
+        if resp.status_code != 200:
+            raise RuntimeError(f"Bridge error {resp.status_code}: {resp.text[:200]}")
+        data = resp.json()
+        if data.get("error"):
+            raise RuntimeError(data["error"])
+        return data.get("response")
+    except httpx.TimeoutException:
+        return "Agent timed out via bridge."
+    except Exception as exc:
+        raise RuntimeError(f"Bridge failed: {str(exc)[:200]}")
+
+
+async def _exec_via_local_cli(openclaw_agent_id: str, message: str) -> str | None:
+    """Execute agent via local OpenClaw CLI."""
     cmd = [
         "openclaw", "agent",
         "--agent", openclaw_agent_id,

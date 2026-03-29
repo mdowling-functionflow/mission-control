@@ -288,6 +288,66 @@ def _get_dir_mtime(d: Path) -> str | None:
     return None
 
 
+# ---------------------------------------------------------------------------
+# Agent Chat — execute agent via OpenClaw CLI
+# ---------------------------------------------------------------------------
+
+class ChatRequest(BaseModel):
+    agent_id: str  # openclaw agent id like "main", "sales"
+    message: str
+
+
+class ChatResponse(BaseModel):
+    response: str | None = None
+    error: str | None = None
+
+
+@app.post("/chat", response_model=ChatResponse, dependencies=[Depends(verify_token)])
+async def chat_with_agent(body: ChatRequest):
+    """Send a message to an agent via OpenClaw CLI and return the response."""
+    import asyncio
+    import json as json_lib
+
+    cmd = [
+        "openclaw", "agent",
+        "--agent", body.agent_id,
+        "--message", body.message,
+        "--json",
+    ]
+
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=120)
+    except asyncio.TimeoutError:
+        return ChatResponse(error="Agent timed out (120s)")
+    except FileNotFoundError:
+        return ChatResponse(error="openclaw CLI not found")
+
+    if proc.returncode != 0:
+        err = stderr.decode("utf-8", errors="replace").strip()
+        return ChatResponse(error=err[:500] if err else "Agent execution failed")
+
+    output = stdout.decode("utf-8", errors="replace").strip()
+    if not output:
+        return ChatResponse(response=None)
+
+    try:
+        data = json_lib.loads(output)
+        if isinstance(data, dict):
+            payloads = data.get("result", {}).get("payloads", [])
+            if payloads:
+                texts = [p.get("text", "") for p in payloads if p.get("text")]
+                if texts:
+                    return ChatResponse(response="\n\n".join(texts))
+        return ChatResponse(response=output)
+    except json_lib.JSONDecodeError:
+        return ChatResponse(response=output)
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8100)
