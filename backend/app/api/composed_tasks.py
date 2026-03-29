@@ -10,6 +10,9 @@ from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.api.deps import ORG_MEMBER_DEP, SESSION_DEP, require_org_admin
+from app.core.logging import get_logger
+
+logger = get_logger(__name__)
 from app.core.time import utcnow
 from app.models.composed_tasks import ComposedTask
 from app.models.executive_agents import ExecutiveAgent
@@ -24,6 +27,7 @@ from app.schemas.composed_tasks import (
     TaskAssignmentRead,
 )
 from app.services.organizations import OrganizationContext
+from app.services.task_dispatch import dispatch_task
 
 router = APIRouter(prefix="/composed-tasks", tags=["composed-tasks"])
 
@@ -71,6 +75,45 @@ async def create_composed_task(
     for a in assignments:
         await session.refresh(a)
 
+    # Dispatch to agents (best-effort — errors are logged but don't block task creation)
+    if assignments:
+        try:
+            dispatch_errors = await dispatch_task(session, task, assignments)
+            if dispatch_errors:
+                for err in dispatch_errors:
+                    logger.warning("task.dispatch.error", error=err, task_id=str(task.id))
+            # Refresh after dispatch updated statuses
+            await session.refresh(task)
+            for a in assignments:
+                await session.refresh(a)
+        except Exception as exc:
+            logger.error("task.dispatch.failed", error=str(exc), task_id=str(task.id))
+
+    return await _build_task_read(session, task, assignments, ctx.organization.id)
+
+
+@router.post("/{task_id}/dispatch", response_model=ComposedTaskRead)
+async def redispatch_task(
+    task_id: UUID,
+    session: AsyncSession = SESSION_DEP,
+    ctx: OrganizationContext = ORG_MEMBER_DEP,
+) -> ComposedTaskRead:
+    """Re-dispatch a task to agents (for retrying failed/stalled dispatches)."""
+    task = await ComposedTask.objects.filter_by(
+        id=task_id, organization_id=ctx.organization.id,
+    ).first(session)
+    if not task:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+
+    assignments = await TaskAssignment.objects.filter_by(task_id=task.id).all(session)
+    errors = await dispatch_task(session, task, assignments)
+    if errors:
+        for err in errors:
+            logger.warning("task.redispatch.error", error=err, task_id=str(task.id))
+
+    await session.refresh(task)
+    for a in assignments:
+        await session.refresh(a)
     return await _build_task_read(session, task, assignments, ctx.organization.id)
 
 

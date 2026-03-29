@@ -1,0 +1,26 @@
+{
+  "runs": [
+    {
+      "id": "wb-a552d3b7",
+      "title": "Meeting prep dossier - Enterprise Ireland - 2026-03-30",
+      "prompt": "Meeting prep dossier delivered to normal endpoints and mirrored into Workbench.",
+      "targetLane": "main",
+      "status": "ready",
+      "artifacts": [
+        {
+          "id": "art-0cc2e19b",
+          "type": "pdf",
+          "label": "Enterprise Ireland - Pre-HPSU - 2026-03-30.pdf",
+          "filePath": "/Users/michaeldowling/Documents/OpenClaw/Research/Enterprise Ireland - Pre-HPSU - 2026-03-30.pdf",
+          "mimeType": "application/pdf",
+          "editable": false,
+          "origin": "agent-output",
+          "createdAt": "2026-03-29T20:07:50+00:00"
+        }
+      ],
+      "summary": "Meeting prep dossier imported into Workbench after normal delivery.",
+      "createdAt": "2026-03-29T20:07:50+00:00",
+      "updatedAt": "2026-03-29T20:07:50+00:00"
+    }
+  ]
+}

@@ -2,7 +2,7 @@
 
 export const dynamic = "force-dynamic";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import {
@@ -15,6 +15,7 @@ import {
   Lightbulb,
   ListTodo,
   MessageSquare,
+  Send,
   Users,
   XCircle,
 } from "lucide-react";
@@ -31,11 +32,13 @@ import {
   type ComposedTask,
   type InstalledSkill,
   type DocumentItem,
+  type ChatMessage,
 } from "@/lib/executive-api";
 
-type Tab = "agent" | "skills" | "tasks" | "knowledge" | "improvements";
+type Tab = "chat" | "agent" | "skills" | "tasks" | "knowledge" | "improvements";
 
 const TABS: Array<{ key: Tab; label: string; icon: typeof Activity }> = [
+  { key: "chat", label: "Chat", icon: MessageSquare },
   { key: "agent", label: "Agent", icon: Activity },
   { key: "skills", label: "Skills", icon: FileCode },
   { key: "tasks", label: "Tasks", icon: ListTodo },
@@ -49,7 +52,7 @@ export default function AgentWorkspacePage() {
 
   const [agent, setAgent] = useState<ExecutiveAgent | null>(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<Tab>("agent");
+  const [activeTab, setActiveTab] = useState<Tab>("chat");
 
   useEffect(() => {
     api.agents.list().then((agents) => {
@@ -144,7 +147,8 @@ export default function AgentWorkspacePage() {
           </div>
 
           {/* Tab content */}
-          <div className="min-h-[200px]">
+          <div className="min-h-[300px]">
+            {activeTab === "chat" && <ChatTab agent={agent} />}
             {activeTab === "agent" && <AgentTab agent={agent} />}
             {activeTab === "skills" && <SkillsTab />}
             {activeTab === "tasks" && <TasksTab agentId={agent.id} />}
@@ -159,6 +163,93 @@ export default function AgentWorkspacePage() {
 
 // ─── Tab Components ──────────────────────────────────────────────────
 
+function ChatTab({ agent }: { agent: ExecutiveAgent }) {
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [input, setInput] = useState("");
+  const [sending, setSending] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  const loadMessages = () => {
+    api.chat.messages(agent.id).then(setMessages).catch(console.error).finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    loadMessages();
+    const iv = setInterval(loadMessages, 10_000);
+    return () => clearInterval(iv);
+  }, [agent.id]);
+
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+  }, [messages]);
+
+  const handleSend = async () => {
+    if (!input.trim() || sending) return;
+    setSending(true);
+    try {
+      const msg = await api.chat.send(agent.id, input);
+      setMessages((prev) => [...prev, msg]);
+      setInput("");
+    } catch (e) { console.error(e); }
+    finally { setSending(false); }
+  };
+
+  return (
+    <div className="flex flex-col h-[500px]">
+      {/* Messages */}
+      <div ref={scrollRef} className="flex-1 overflow-y-auto space-y-3 pb-4">
+        {loading ? <Spinner /> : messages.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-full text-center">
+            <MessageSquare className="h-8 w-8 mb-2" style={{ color: "var(--text-quiet)" }} />
+            <p className="text-sm" style={{ color: "var(--text-muted)" }}>
+              Start a conversation with {agent.display_name}
+            </p>
+          </div>
+        ) : (
+          messages.map((m) => (
+            <div key={m.id} className={cn("flex", m.role === "user" ? "justify-end" : "justify-start")}>
+              <div
+                className={cn(
+                  "max-w-[80%] rounded-2xl px-4 py-2.5 text-sm",
+                  m.role === "user"
+                    ? "rounded-br-md bg-[color:var(--accent)] text-white"
+                    : "rounded-bl-md border",
+                )}
+                style={m.role !== "user" ? { borderColor: "var(--border)", background: "var(--surface)", color: "var(--text)" } : undefined}
+              >
+                <p className="whitespace-pre-wrap">{m.content}</p>
+                <p className={cn("text-[10px] mt-1", m.role === "user" ? "text-white/60" : "")} style={m.role !== "user" ? { color: "var(--text-quiet)" } : undefined}>
+                  {new Date(m.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                </p>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+
+      {/* Input */}
+      <div className="border-t pt-3 flex gap-2" style={{ borderColor: "var(--border)" }}>
+        <input
+          className="flex-1 rounded-xl border px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[color:var(--accent)]/20"
+          style={{ borderColor: "var(--border)", background: "var(--surface-muted)", color: "var(--text)" }}
+          placeholder={`Message ${agent.display_name}...`}
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
+        />
+        <button
+          onClick={handleSend}
+          disabled={!input.trim() || sending}
+          className="rounded-xl p-2.5 bg-[color:var(--accent)] text-white disabled:opacity-30 transition-fast"
+        >
+          <Send className="h-4 w-4" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function AgentTab({ agent }: { agent: ExecutiveAgent }) {
   const [activities, setActivities] = useState<AgentActivity[]>([]);
   const [loading, setLoading] = useState(true);
@@ -169,12 +260,17 @@ function AgentTab({ agent }: { agent: ExecutiveAgent }) {
 
   return (
     <div className="space-y-6">
-      {agent.role_description && (
-        <div className="rounded-xl border p-5" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
-          <h4 className="text-[10px] font-semibold uppercase tracking-widest mb-2" style={{ color: "var(--text-quiet)" }}>Mandate</h4>
-          <p className="text-sm whitespace-pre-wrap" style={{ color: "var(--text)" }}>{agent.role_description}</p>
-        </div>
-      )}
+      <EditableField
+        label="Mandate"
+        value={agent.role_description || ""}
+        onSave={async (val) => { await api.agents.update(agent.id, { role_description: val }); }}
+        multiline
+      />
+      <EditableField
+        label="Current Focus"
+        value={agent.current_focus || ""}
+        onSave={async (val) => { await api.agents.update(agent.id, { current_focus: val }); }}
+      />
       <div>
         <h4 className="text-[10px] font-semibold uppercase tracking-widest mb-2" style={{ color: "var(--text-quiet)" }}>Recent Activity</h4>
         {loading ? <Spinner /> : activities.length === 0 ? <EmptyState text="No recent activity" /> : (
@@ -341,6 +437,72 @@ function ImprovementsTab({ agentId }: { agentId: string }) {
 }
 
 // ─── Shared ──────────────────────────────────────────────────────────
+
+function EditableField({ label, value, onSave, multiline }: {
+  label: string;
+  value: string;
+  onSave: (val: string) => Promise<void>;
+  multiline?: boolean;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value);
+  const [saving, setSaving] = useState(false);
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await onSave(draft);
+      setEditing(false);
+    } catch (e) { console.error(e); }
+    finally { setSaving(false); }
+  };
+
+  return (
+    <div className="rounded-xl border p-5" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
+      <div className="flex items-center justify-between mb-2">
+        <h4 className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: "var(--text-quiet)" }}>{label}</h4>
+        <button
+          onClick={() => { if (editing) { setDraft(value); } setEditing(!editing); }}
+          className="text-[11px] transition-fast"
+          style={{ color: "var(--text-quiet)" }}
+        >
+          {editing ? "Cancel" : "Edit"}
+        </button>
+      </div>
+      {editing ? (
+        <div className="space-y-2">
+          {multiline ? (
+            <textarea
+              className="w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[color:var(--accent)]/20"
+              style={{ borderColor: "var(--border)", background: "var(--surface-muted)", color: "var(--text)" }}
+              rows={4}
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+            />
+          ) : (
+            <input
+              className="w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[color:var(--accent)]/20"
+              style={{ borderColor: "var(--border)", background: "var(--surface-muted)", color: "var(--text)" }}
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+            />
+          )}
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className="rounded-lg bg-[color:var(--accent)] px-3 py-1.5 text-xs font-medium text-white disabled:opacity-40 transition-fast"
+          >
+            {saving ? "Saving..." : "Save"}
+          </button>
+        </div>
+      ) : (
+        <p className="text-sm whitespace-pre-wrap" style={{ color: value ? "var(--text)" : "var(--text-quiet)" }}>
+          {value || `No ${label.toLowerCase()} set. Click Edit to add one.`}
+        </p>
+      )}
+    </div>
+  );
+}
 
 function Spinner() {
   return (

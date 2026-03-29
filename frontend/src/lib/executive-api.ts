@@ -212,6 +212,15 @@ export interface ValidationResult {
   checks: Array<{ name: string; passed: boolean; message: string }>;
 }
 
+// ─── Agent Chat Types ────────────────────────────────────────────────
+
+export interface ChatMessage {
+  id: string;
+  role: string;
+  content: string;
+  created_at: string;
+}
+
 // ─── Document Types ──────────────────────────────────────────────────
 
 export interface DocumentItem {
@@ -371,6 +380,16 @@ export const api = {
       execFetch<Improvement>(`/api/v1/improvements/${id}`, {
         method: "PATCH",
         body: JSON.stringify(data),
+      }),
+  },
+
+  chat: {
+    messages: (agentId: string, limit = 50) =>
+      execFetch<ChatMessage[]>(`/api/v1/agent-chat/${agentId}/messages?limit=${limit}`),
+    send: (agentId: string, content: string) =>
+      execFetch<ChatMessage>(`/api/v1/agent-chat/${agentId}/send`, {
+        method: "POST",
+        body: JSON.stringify({ content }),
       }),
   },
 
