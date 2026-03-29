@@ -27,6 +27,7 @@ import {
   type AgentSuggestion,
   type TaskAssignmentInput,
 } from "@/lib/executive-api";
+import { useEventStream, type SSEEvent } from "@/lib/use-event-stream";
 
 // ─── Full-Screen Chat Home ───────────────────────────────────────────
 
@@ -48,9 +49,20 @@ export default function HomePage() {
 
   useEffect(() => {
     loadData();
-    const iv = setInterval(loadData, 15_000);
+    const iv = setInterval(loadData, 30_000); // Reduced from 15s — SSE handles live updates
     return () => clearInterval(iv);
   }, []);
+
+  // Real-time updates via SSE
+  useEventStream((event: SSEEvent) => {
+    if (event.type === "task.updated") {
+      // Refresh task list on any task change
+      api.tasks.list().then(setTasks).catch(() => {});
+    } else if (event.type === "approval.updated") {
+      // Refresh overview for approval changes
+      api.overview().then(setOverview).catch(() => {});
+    }
+  }, !loading);
 
   return (
     <DashboardPageLayout

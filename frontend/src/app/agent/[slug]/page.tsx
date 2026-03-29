@@ -8,6 +8,8 @@ import Link from "next/link";
 import {
   Activity,
   AlertTriangle,
+  ArrowRight,
+  CalendarCheck,
   CheckCircle2,
   Clock,
   FileCode,
@@ -35,15 +37,20 @@ import {
   type ChatMessage,
 } from "@/lib/executive-api";
 
-type Tab = "chat" | "agent" | "skills" | "tasks" | "knowledge" | "improvements";
+type Tab = "chat" | "agent" | "skills" | "tasks" | "knowledge" | "improvements" | "approvals" | "review";
 
-const TABS: Array<{ key: Tab; label: string; icon: typeof Activity }> = [
+const BASE_TABS: Array<{ key: Tab; label: string; icon: typeof Activity }> = [
   { key: "chat", label: "Chat", icon: MessageSquare },
   { key: "agent", label: "Agent", icon: Activity },
   { key: "skills", label: "Skills", icon: FileCode },
   { key: "tasks", label: "Tasks", icon: ListTodo },
   { key: "knowledge", label: "Knowledge", icon: FileText },
   { key: "improvements", label: "Improvements", icon: Lightbulb },
+];
+
+const MARIO_EXTRA_TABS: Array<{ key: Tab; label: string; icon: typeof Activity }> = [
+  { key: "approvals", label: "Approvals", icon: CheckCircle2 },
+  { key: "review", label: "Weekly Review", icon: CalendarCheck },
 ];
 
 export default function AgentWorkspacePage() {
@@ -128,8 +135,8 @@ export default function AgentWorkspacePage() {
           </div>
 
           {/* Tabs */}
-          <div className="flex gap-1 border-b" style={{ borderColor: "var(--border)" }}>
-            {TABS.map(({ key, label, icon: Icon }) => (
+          <div className="flex gap-1 border-b overflow-x-auto" style={{ borderColor: "var(--border)" }}>
+            {[...BASE_TABS, ...(slug === "main" ? MARIO_EXTRA_TABS : [])].map(({ key, label, icon: Icon }) => (
               <button
                 key={key}
                 onClick={() => setActiveTab(key)}
@@ -154,6 +161,8 @@ export default function AgentWorkspacePage() {
             {activeTab === "tasks" && <TasksTab agentId={agent.id} />}
             {activeTab === "knowledge" && <KnowledgeTab agentId={agent.id} />}
             {activeTab === "improvements" && <ImprovementsTab agentId={agent.id} />}
+            {activeTab === "approvals" && <ApprovalsTab />}
+            {activeTab === "review" && <WeeklyReviewTab />}
           </div>
         </div>
       </SignedIn>
@@ -504,6 +513,91 @@ function ImprovementsTab({ agentId }: { agentId: string }) {
 }
 
 // ─── Shared ──────────────────────────────────────────────────────────
+
+function ApprovalsTab() {
+  const [approvals, setApprovals] = useState<Array<{ id: string; action_type: string; status: string; confidence: number; agent_name: string | null; created_at: string }>>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    api.approvals.global("pending").then(setApprovals).catch(console.error).finally(() => setLoading(false));
+  }, []);
+
+  if (loading) return <Spinner />;
+  if (approvals.length === 0) return <EmptyState text="No pending approvals. All clear." />;
+
+  return (
+    <div className="space-y-2">
+      {approvals.map((a) => (
+        <div key={a.id} className="flex items-center gap-3 rounded-xl border p-3" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
+          <Clock className="h-4 w-4 text-amber-500 shrink-0" />
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium" style={{ color: "var(--text)" }}>{a.action_type}</p>
+            {a.agent_name && <p className="text-xs" style={{ color: "var(--text-muted)" }}>{a.agent_name}</p>}
+          </div>
+          <div className="text-right shrink-0">
+            <span className="text-xs font-medium text-amber-600">{a.status}</span>
+            <p className="text-[10px]" style={{ color: "var(--text-quiet)" }}>{Math.round(a.confidence)}%</p>
+          </div>
+        </div>
+      ))}
+      <Link href="/approvals" className="flex items-center gap-1 text-xs" style={{ color: "var(--accent)" }}>
+        View all approvals <ArrowRight className="h-3 w-3" />
+      </Link>
+    </div>
+  );
+}
+
+function WeeklyReviewTab() {
+  const [review, setReview] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    api.weeklyReviews.current().then(setReview).catch(console.error).finally(() => setLoading(false));
+  }, []);
+
+  if (loading) return <Spinner />;
+  if (!review) return <EmptyState text="No weekly review yet." />;
+
+  const sections = [
+    { title: "Wins", items: review.wins },
+    { title: "Key Risks", items: review.risks },
+    { title: "Friction", items: review.friction_points },
+    { title: "Next Week", items: review.next_week_priorities },
+  ];
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h4 className="text-sm font-semibold" style={{ color: "var(--text)" }}>
+          Week of {new Date(review.week_start).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+        </h4>
+        <span className={cn("text-xs font-medium", review.status === "finalized" ? "text-emerald-600" : "text-amber-600")}>
+          {review.status}
+        </span>
+      </div>
+      {sections.map(({ title, items }) => (
+        <div key={title}>
+          <h5 className="text-[10px] font-semibold uppercase tracking-widest mb-1" style={{ color: "var(--text-quiet)" }}>{title}</h5>
+          {items && items.length > 0 ? (
+            <ul className="space-y-1">
+              {items.map((item: any, i: number) => (
+                <li key={i} className="flex items-start gap-2 text-xs" style={{ color: "var(--text-muted)" }}>
+                  <span className="mt-1.5 h-1 w-1 rounded-full bg-slate-400 shrink-0" />
+                  {item.text}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-xs italic" style={{ color: "var(--text-quiet)" }}>None yet</p>
+          )}
+        </div>
+      ))}
+      <Link href="/weekly-review" className="flex items-center gap-1 text-xs" style={{ color: "var(--accent)" }}>
+        Full review <ArrowRight className="h-3 w-3" />
+      </Link>
+    </div>
+  );
+}
 
 function EditableField({ label, value, onSave, multiline }: {
   label: string;
