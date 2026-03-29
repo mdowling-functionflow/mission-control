@@ -150,7 +150,7 @@ export default function AgentWorkspacePage() {
           <div className="min-h-[300px]">
             {activeTab === "chat" && <ChatTab agent={agent} />}
             {activeTab === "agent" && <AgentTab agent={agent} />}
-            {activeTab === "skills" && <SkillsTab />}
+            {activeTab === "skills" && <SkillsTab agentId={agent.id} />}
             {activeTab === "tasks" && <TasksTab agentId={agent.id} />}
             {activeTab === "knowledge" && <KnowledgeTab agentId={agent.id} />}
             {activeTab === "improvements" && <ImprovementsTab agentId={agent.id} />}
@@ -291,38 +291,105 @@ function AgentTab({ agent }: { agent: ExecutiveAgent }) {
   );
 }
 
-function SkillsTab() {
+function SkillsTab({ agentId }: { agentId: string }) {
   const [skills, setSkills] = useState<InstalledSkill[]>([]);
+  const [mappings, setMappings] = useState<Array<{ id: string; skill_path: string; relevance: string }>>([]);
   const [loading, setLoading] = useState(true);
+  const [showAll, setShowAll] = useState(false);
 
   useEffect(() => {
-    api.skills.list().then(setSkills).catch(console.error).finally(() => setLoading(false));
-  }, []);
+    Promise.all([
+      api.skills.list().catch(() => []),
+      api.skillMappings.list(agentId).catch(() => []),
+    ]).then(([s, m]) => { setSkills(s); setMappings(m); }).finally(() => setLoading(false));
+  }, [agentId]);
 
   if (loading) return <Spinner />;
-  if (skills.length === 0) return <EmptyState text="No skills found" />;
+
+  const mappedPaths = new Set(mappings.map((m) => m.skill_path));
+  const coreSkills = skills.filter((s) => mappedPaths.has(s.encoded_path));
+  const otherSkills = skills.filter((s) => !mappedPaths.has(s.encoded_path));
+
+  const handleAdd = async (encodedPath: string) => {
+    try {
+      const m = await api.skillMappings.add(agentId, encodedPath);
+      setMappings((prev) => [...prev, { ...m, skill_path: encodedPath, relevance: "core" }]);
+    } catch (e) { console.error(e); }
+  };
+
+  const handleRemove = async (encodedPath: string) => {
+    const mapping = mappings.find((m) => m.skill_path === encodedPath);
+    if (!mapping) return;
+    try {
+      await api.skillMappings.remove(agentId, mapping.id);
+      setMappings((prev) => prev.filter((m) => m.id !== mapping.id));
+    } catch (e) { console.error(e); }
+  };
 
   return (
-    <div className="space-y-2">
-      {skills.slice(0, 20).map((skill) => (
-        <Link
-          key={skill.path}
-          href={`/skills-editor/${skill.encoded_path}`}
-          className="flex items-center gap-3 rounded-xl border p-3 transition-smooth hover:shadow-elevation-2"
-          style={{ borderColor: "var(--border)", background: "var(--surface)" }}
-        >
-          <FileCode className="h-4 w-4 shrink-0" style={{ color: "var(--text-quiet)" }} />
-          <div className="min-w-0 flex-1">
-            <p className="text-sm font-medium" style={{ color: "var(--text)" }}>{skill.name}</p>
-            {skill.summary && <p className="text-xs truncate" style={{ color: "var(--text-muted)" }}>{skill.summary}</p>}
+    <div className="space-y-4">
+      {/* Core skills */}
+      {coreSkills.length > 0 && (
+        <div>
+          <h4 className="text-[10px] font-semibold uppercase tracking-widest mb-2" style={{ color: "var(--text-quiet)" }}>
+            Core Skills ({coreSkills.length})
+          </h4>
+          <div className="space-y-1.5">
+            {coreSkills.map((skill) => (
+              <SkillRow key={skill.encoded_path} skill={skill} mapped onToggle={() => handleRemove(skill.encoded_path)} />
+            ))}
           </div>
-        </Link>
-      ))}
-      {skills.length > 20 && (
-        <Link href="/skills-editor" className="text-xs" style={{ color: "var(--accent)" }}>
-          View all {skills.length} skills
-        </Link>
+        </div>
       )}
+
+      {coreSkills.length === 0 && (
+        <div className="rounded-xl border border-dashed p-4 text-center text-xs" style={{ borderColor: "var(--border)", color: "var(--text-quiet)" }}>
+          No skills mapped to this agent yet. Add skills below.
+        </div>
+      )}
+
+      {/* All skills */}
+      <div>
+        <button
+          onClick={() => setShowAll(!showAll)}
+          className="text-xs font-medium transition-fast"
+          style={{ color: "var(--accent)" }}
+        >
+          {showAll ? "Hide all skills" : `Show all ${otherSkills.length} available skills`}
+        </button>
+        {showAll && (
+          <div className="mt-2 space-y-1.5">
+            {otherSkills.map((skill) => (
+              <SkillRow key={skill.encoded_path} skill={skill} mapped={false} onToggle={() => handleAdd(skill.encoded_path)} />
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function SkillRow({ skill, mapped, onToggle }: { skill: InstalledSkill; mapped: boolean; onToggle: () => void }) {
+  return (
+    <div className="flex items-center gap-3 rounded-xl border p-3" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
+      <Link href={`/skills-editor/${skill.encoded_path}`} className="flex items-center gap-3 min-w-0 flex-1">
+        <FileCode className="h-4 w-4 shrink-0" style={{ color: "var(--text-quiet)" }} />
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-medium" style={{ color: "var(--text)" }}>{skill.name}</p>
+          {skill.summary && <p className="text-xs truncate" style={{ color: "var(--text-muted)" }}>{skill.summary}</p>}
+        </div>
+      </Link>
+      <button
+        onClick={(e) => { e.preventDefault(); onToggle(); }}
+        className={cn(
+          "rounded-lg px-2 py-1 text-[10px] font-medium transition-fast",
+          mapped
+            ? "bg-red-50 text-red-600 hover:bg-red-100 dark:bg-red-900/20 dark:text-red-400"
+            : "bg-[color:var(--accent-soft)] text-[color:var(--accent)] hover:opacity-80",
+        )}
+      >
+        {mapped ? "Remove" : "Add"}
+      </button>
     </div>
   );
 }

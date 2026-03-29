@@ -26,6 +26,7 @@ from app.schemas.composed_tasks import (
     SuggestAgentsResponse,
     TaskAssignmentRead,
 )
+from app.models.documents import Document
 from app.services.organizations import OrganizationContext
 from app.services.task_dispatch import dispatch_task
 
@@ -236,6 +237,13 @@ async def update_composed_task(
     await session.commit()
     await session.refresh(task)
 
+    # Auto-create doc when task completes with agent updates
+    if body.status == "completed":
+        try:
+            await _auto_create_doc_from_task(session, task, ctx.organization.id)
+        except Exception as exc:
+            logger.warning("task.auto_doc.failed", error=str(exc), task_id=str(task.id))
+
     assignments = await TaskAssignment.objects.filter_by(task_id=task.id).all(session)
     return await _build_task_read(session, task, assignments, ctx.organization.id)
 
@@ -281,6 +289,43 @@ async def add_agent_update(
     for a in assignments:
         await session.refresh(a)
     return await _build_task_read(session, task, assignments, ctx.organization.id)
+
+
+async def _auto_create_doc_from_task(
+    session: AsyncSession, task: ComposedTask, org_id: UUID,
+) -> None:
+    """Auto-create a document from a completed task's agent updates."""
+    assignments = await TaskAssignment.objects.filter_by(task_id=task.id).all(session)
+    updates = [a for a in assignments if a.last_update]
+    if not updates:
+        return
+
+    content_parts = [f"# {task.title}\n"]
+    if task.original_request:
+        content_parts.append(f"**Request:** {task.original_request}\n")
+
+    # Resolve agent names
+    exec_agents = await ExecutiveAgent.objects.filter_by(organization_id=org_id).all(session)
+    agent_map = {a.id: a for a in exec_agents}
+
+    primary_agent_id = None
+    for a in updates:
+        ea = agent_map.get(a.executive_agent_id)
+        name = ea.display_name if ea else "Agent"
+        if a.role == "primary" and ea:
+            primary_agent_id = ea.id
+        content_parts.append(f"\n## {name} ({a.role})\n\n{a.last_update}")
+
+    doc = Document(
+        organization_id=org_id,
+        title=f"Task Output: {task.title}",
+        content="\n".join(content_parts),
+        doc_type="memo",
+        source_agent_id=primary_agent_id,
+        status="published",
+    )
+    session.add(doc)
+    await session.commit()
 
 
 _AGENT_KEYWORDS: dict[str, list[str]] = {

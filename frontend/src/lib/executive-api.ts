@@ -383,6 +383,22 @@ export const api = {
       }),
   },
 
+  skillMappings: {
+    list: (agentId: string) =>
+      execFetch<Array<{ id: string; skill_path: string; relevance: string }>>(
+        `/api/v1/executive-agents/${agentId}/skill-mappings`,
+      ),
+    add: (agentId: string, skillPath: string, relevance = "core") =>
+      execFetch<{ id: string }>(`/api/v1/executive-agents/${agentId}/skill-mappings`, {
+        method: "POST",
+        body: JSON.stringify({ skill_path: skillPath, relevance }),
+      }),
+    remove: (agentId: string, mappingId: string) =>
+      execFetch<void>(`/api/v1/executive-agents/${agentId}/skill-mappings/${mappingId}`, {
+        method: "DELETE",
+      }),
+  },
+
   chat: {
     messages: (agentId: string, limit = 50) =>
       execFetch<ChatMessage[]>(`/api/v1/agent-chat/${agentId}/messages?limit=${limit}`),

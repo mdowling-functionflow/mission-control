@@ -57,6 +57,7 @@ export default function HomePage() {
       signedOut={{ message: "Sign in to access Mission Control", forceRedirectUrl: "/home" }}
       title=""
       stickyHeader={false}
+      mainClassName="!overflow-hidden !p-0"
     >
       <SignedOut>
         <div className="py-20 text-center" style={{ color: "var(--text-muted)" }}>Sign in to continue.</div>
@@ -67,7 +68,7 @@ export default function HomePage() {
             <div className="h-6 w-6 animate-spin rounded-full border-2 border-slate-300 border-t-slate-900" />
           </div>
         ) : (
-          <div className="flex h-[calc(100vh-64px)] flex-col">
+          <div className="flex h-full flex-col">
             {/* Thread area — scrollable */}
             <div className="flex-1 overflow-y-auto">
               <div className="mx-auto max-w-2xl px-4 py-6 space-y-4">

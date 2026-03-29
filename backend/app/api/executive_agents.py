@@ -8,7 +8,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func
-from sqlmodel import col, select
+from sqlmodel import SQLModel, col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.api.deps import ORG_MEMBER_DEP, SESSION_DEP, require_org_admin
@@ -17,6 +17,7 @@ from app.core.time import utcnow
 from app.models.activity_events import ActivityEvent
 from app.models.agents import Agent
 from app.models.approvals import Approval
+from app.models.agent_skill_mappings import AgentSkillMapping
 from app.models.executive_agents import ExecutiveAgent
 from app.models.improvements import Improvement
 from app.schemas.executive_agents import (
@@ -378,6 +379,81 @@ async def get_agent_improvements(
         }
         for i in items
     ]
+
+
+# ---------------------------------------------------------------------------
+# Skill Mappings
+# ---------------------------------------------------------------------------
+
+
+@router.get("/{agent_id}/skill-mappings")
+async def list_skill_mappings(
+    agent_id: UUID,
+    session: AsyncSession = SESSION_DEP,
+    ctx: OrganizationContext = ORG_MEMBER_DEP,
+) -> list[dict]:
+    """List skill mappings for an executive agent."""
+    mappings = await AgentSkillMapping.objects.filter_by(
+        executive_agent_id=agent_id,
+    ).all(session)
+    return [
+        {
+            "id": str(m.id),
+            "executive_agent_id": str(m.executive_agent_id),
+            "skill_path": m.skill_path,
+            "relevance": m.relevance,
+            "created_at": m.created_at.isoformat(),
+        }
+        for m in mappings
+    ]
+
+
+class SkillMappingCreate(SQLModel):
+    skill_path: str
+    relevance: str = "core"
+
+
+@router.post("/{agent_id}/skill-mappings", status_code=status.HTTP_201_CREATED)
+async def add_skill_mapping(
+    agent_id: UUID,
+    body: SkillMappingCreate,
+    session: AsyncSession = SESSION_DEP,
+    ctx: OrganizationContext = ORG_MEMBER_DEP,
+) -> dict:
+    """Add a skill mapping for an executive agent."""
+    mapping = AgentSkillMapping(
+        executive_agent_id=agent_id,
+        skill_path=body.skill_path,
+        relevance=body.relevance,
+    )
+    session.add(mapping)
+    await session.commit()
+    await session.refresh(mapping)
+    return {
+        "id": str(mapping.id),
+        "executive_agent_id": str(mapping.executive_agent_id),
+        "skill_path": mapping.skill_path,
+        "relevance": mapping.relevance,
+        "created_at": mapping.created_at.isoformat(),
+    }
+
+
+@router.delete("/{agent_id}/skill-mappings/{mapping_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def remove_skill_mapping(
+    agent_id: UUID,
+    mapping_id: UUID,
+    session: AsyncSession = SESSION_DEP,
+    ctx: OrganizationContext = ORG_MEMBER_DEP,
+) -> None:
+    """Remove a skill mapping."""
+    mapping = await AgentSkillMapping.objects.filter_by(
+        id=mapping_id,
+        executive_agent_id=agent_id,
+    ).first(session)
+    if not mapping:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+    await session.delete(mapping)
+    await session.commit()
 
 
 # ---------------------------------------------------------------------------
