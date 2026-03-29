@@ -72,7 +72,6 @@ async def send_message(
     ctx: OrganizationContext = ORG_MEMBER_DEP,
 ) -> ChatMessageRead:
     """Send a message to an agent and dispatch to their OpenClaw session."""
-    # Verify agent exists
     exec_agent = await ExecutiveAgent.objects.filter_by(
         id=agent_id,
         organization_id=ctx.organization.id,
@@ -96,6 +95,15 @@ async def send_message(
         await _dispatch_to_agent(session, exec_agent, body.content)
     except Exception as exc:
         logger.warning("agent_chat.dispatch.failed", agent=exec_agent.display_name, error=str(exc))
+        # Save a system note about dispatch failure
+        err_msg = AgentMessage(
+            organization_id=ctx.organization.id,
+            executive_agent_id=agent_id,
+            role="system",
+            content=f"Could not dispatch to {exec_agent.display_name}: {str(exc)[:200]}",
+        )
+        session.add(err_msg)
+        await session.commit()
 
     return ChatMessageRead(
         id=str(user_msg.id),
@@ -105,13 +113,51 @@ async def send_message(
     )
 
 
+@router.post("/{agent_id}/receive", response_model=ChatMessageRead)
+async def receive_agent_message(
+    agent_id: UUID,
+    body: SendMessageRequest,
+    session: AsyncSession = SESSION_DEP,
+    ctx: OrganizationContext = ORG_MEMBER_DEP,
+) -> ChatMessageRead:
+    """Record an agent response message.
+
+    Called by:
+    - Gateway webhook when agent responds
+    - OpenClaw webhook worker
+    - Manual testing / simulation
+    """
+    exec_agent = await ExecutiveAgent.objects.filter_by(
+        id=agent_id,
+        organization_id=ctx.organization.id,
+    ).first(session)
+    if not exec_agent:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
+
+    agent_msg = AgentMessage(
+        organization_id=ctx.organization.id,
+        executive_agent_id=agent_id,
+        role="agent",
+        content=body.content,
+    )
+    session.add(agent_msg)
+    await session.commit()
+    await session.refresh(agent_msg)
+
+    return ChatMessageRead(
+        id=str(agent_msg.id),
+        role=agent_msg.role,
+        content=agent_msg.content,
+        created_at=agent_msg.created_at.isoformat(),
+    )
+
+
 async def _dispatch_to_agent(
     session: AsyncSession,
     exec_agent: ExecutiveAgent,
     message: str,
 ) -> None:
     """Send a message to the agent's OpenClaw session via gateway."""
-    # Find board-native agent
     stmt = select(Agent).where(col(Agent.name) == exec_agent.openclaw_agent_id)
     result = await session.exec(stmt)
     board_agents = result.all()

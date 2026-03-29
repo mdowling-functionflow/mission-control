@@ -33,13 +33,12 @@ import {
   type ValidationResult,
 } from "@/lib/executive-api";
 
-type WorkflowStep = "browse" | "request" | "review" | "applied";
+type WorkflowStep = "browse" | "direct-edit" | "request" | "review" | "applied";
 
 const STEPS: Array<{ key: WorkflowStep; label: string; icon: typeof FileCode }> = [
   { key: "browse", label: "Browse", icon: FileCode },
-  { key: "request", label: "Request", icon: MessageSquare },
-  { key: "review", label: "Review & Edit", icon: Pencil },
-  { key: "applied", label: "Applied", icon: Check },
+  { key: "direct-edit", label: "Edit", icon: Pencil },
+  { key: "applied", label: "Saved", icon: Check },
 ];
 
 export default function SkillDetailPage() {
@@ -221,15 +220,29 @@ export default function SkillDetailPage() {
               {/* Toolbar */}
               <div className="flex items-center justify-between border-b border-slate-100 px-4 py-2">
                 <span className="text-xs text-slate-500">{activeFile.name} &middot; {activeFile.size} chars</span>
-                {isMarkdown && (
+                <div className="flex items-center gap-2">
+                  {isMarkdown && (
+                    <button
+                      onClick={() => setShowPreview(!showPreview)}
+                      className="flex items-center gap-1 rounded px-2 py-1 text-xs text-slate-500 hover:bg-slate-50"
+                    >
+                      {showPreview ? <FileCode className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
+                      {showPreview ? "Source" : "Preview"}
+                    </button>
+                  )}
                   <button
-                    onClick={() => setShowPreview(!showPreview)}
-                    className="flex items-center gap-1 rounded px-2 py-1 text-xs text-slate-500 hover:bg-slate-50"
+                    onClick={() => {
+                      setEditingFile(activeFileTab);
+                      setEditContent(activeFile.content);
+                      setOriginalContent(activeFile.content);
+                      setStep("direct-edit");
+                    }}
+                    className="flex items-center gap-1 rounded-lg bg-[color:var(--accent)] px-2.5 py-1 text-xs font-medium text-white hover:opacity-90 transition-fast"
                   >
-                    {showPreview ? <FileCode className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
-                    {showPreview ? "Source" : "Preview"}
+                    <Pencil className="h-3 w-3" />
+                    Edit
                   </button>
-                )}
+                </div>
               </div>
               <div className="p-4 max-h-[500px] overflow-auto">
                 {showPreview && isMarkdown ? (
@@ -245,12 +258,66 @@ export default function SkillDetailPage() {
             </div>
           )}
 
-          {/* Request a change — browse step */}
+          {/* Direct edit mode */}
+          {step === "direct-edit" && editingFile && (
+            <div className="rounded-xl border border-slate-200 bg-white shadow-elevation-1 overflow-hidden">
+              <div className="flex items-center justify-between border-b border-slate-100 px-4 py-2">
+                <span className="text-xs font-medium text-slate-700">Editing: {editingFile}</span>
+                <div className="flex items-center gap-2">
+                  {hasChanges && (
+                    <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700">
+                      Modified
+                    </span>
+                  )}
+                  {editingFile.endsWith(".md") && (
+                    <button
+                      onClick={() => setShowPreview(!showPreview)}
+                      className="flex items-center gap-1 rounded px-2 py-1 text-xs text-slate-500 hover:bg-slate-50"
+                    >
+                      {showPreview ? <FileCode className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
+                      {showPreview ? "Editor" : "Preview"}
+                    </button>
+                  )}
+                </div>
+              </div>
+              {showPreview && editingFile.endsWith(".md") ? (
+                <div className="p-6">
+                  <div className="prose prose-sm prose-slate max-w-none max-h-[500px] overflow-auto">
+                    <ReactMarkdown>{editContent}</ReactMarkdown>
+                  </div>
+                </div>
+              ) : (
+                <textarea
+                  className="w-full px-4 py-3 text-xs font-mono bg-slate-50 min-h-[500px] focus:outline-none resize-none"
+                  value={editContent}
+                  onChange={(e) => setEditContent(e.target.value)}
+                />
+              )}
+              <div className="flex justify-end gap-2 border-t border-slate-100 px-4 py-3">
+                <button
+                  onClick={handleReset}
+                  className="rounded-lg border border-slate-200 px-4 py-2 text-xs text-slate-600 hover:bg-slate-50 transition-fast"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleApply}
+                  disabled={applying || !hasChanges}
+                  className="flex items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2 text-xs font-medium text-white hover:bg-emerald-700 disabled:opacity-40 transition-fast"
+                >
+                  <Check className="h-3.5 w-3.5" />
+                  {applying ? "Saving..." : "Save"}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* AI Review — request a change */}
           {step === "browse" && (
             <section className="rounded-xl border border-slate-200 bg-white p-6 shadow-elevation-1">
               <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-900 mb-3">
                 <MessageSquare className="h-4 w-4 text-slate-400" />
-                Request a Change
+                AI-Assisted Change
               </h3>
               <p className="text-xs text-slate-500 mb-3">
                 Describe what you want to improve in plain language. The change will go through review before being applied.

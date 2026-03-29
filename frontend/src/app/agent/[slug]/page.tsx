@@ -216,24 +216,54 @@ function ChatTab({ agent }: { agent: ExecutiveAgent }) {
             </p>
           </div>
         ) : (
-          messages.map((m) => (
-            <div key={m.id} className={cn("flex", m.role === "user" ? "justify-end" : "justify-start")}>
-              <div
-                className={cn(
-                  "max-w-[80%] rounded-2xl px-4 py-2.5 text-sm",
-                  m.role === "user"
-                    ? "rounded-br-md bg-[color:var(--accent)] text-white"
-                    : "rounded-bl-md border",
+          <>
+            {messages.map((m) => (
+              <div key={m.id} className={cn(
+                "flex",
+                m.role === "user" ? "justify-end" : "justify-start",
+              )}>
+                {m.role === "system" ? (
+                  <div className="w-full text-center">
+                    <p className="text-[11px] italic" style={{ color: "var(--text-quiet)" }}>{m.content}</p>
+                  </div>
+                ) : (
+                  <div className="flex items-start gap-2 max-w-[85%]">
+                    {m.role === "agent" && (
+                      <span className="mt-1 text-lg shrink-0">{agent.avatar_emoji || "🤖"}</span>
+                    )}
+                    <div
+                      className={cn(
+                        "rounded-2xl px-4 py-2.5 text-sm",
+                        m.role === "user"
+                          ? "rounded-br-md bg-[color:var(--accent)] text-white"
+                          : "rounded-bl-md border",
+                      )}
+                      style={m.role !== "user" ? { borderColor: "var(--border)", background: "var(--surface)", color: "var(--text)" } : undefined}
+                    >
+                      <p className="whitespace-pre-wrap">{m.content}</p>
+                      <p className={cn("text-[10px] mt-1", m.role === "user" ? "text-white/60" : "")} style={m.role !== "user" ? { color: "var(--text-quiet)" } : undefined}>
+                        {m.role === "agent" && <span className="font-medium mr-1">{agent.display_name}</span>}
+                        {new Date(m.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                      </p>
+                    </div>
+                  </div>
                 )}
-                style={m.role !== "user" ? { borderColor: "var(--border)", background: "var(--surface)", color: "var(--text)" } : undefined}
-              >
-                <p className="whitespace-pre-wrap">{m.content}</p>
-                <p className={cn("text-[10px] mt-1", m.role === "user" ? "text-white/60" : "")} style={m.role !== "user" ? { color: "var(--text-quiet)" } : undefined}>
-                  {new Date(m.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                </p>
               </div>
-            </div>
-          ))
+            ))}
+            {/* Typing indicator — show when last message is from user */}
+            {messages.length > 0 && messages[messages.length - 1].role === "user" && (
+              <div className="flex items-center gap-2">
+                <span className="text-lg">{agent.avatar_emoji || "🤖"}</span>
+                <div className="rounded-2xl rounded-bl-md border px-4 py-2.5" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
+                  <div className="flex gap-1">
+                    <span className="h-1.5 w-1.5 rounded-full bg-slate-400 animate-pulse" style={{ animationDelay: "0ms" }} />
+                    <span className="h-1.5 w-1.5 rounded-full bg-slate-400 animate-pulse" style={{ animationDelay: "200ms" }} />
+                    <span className="h-1.5 w-1.5 rounded-full bg-slate-400 animate-pulse" style={{ animationDelay: "400ms" }} />
+                  </div>
+                </div>
+              </div>
+            )}
+          </>
         )}
       </div>
 
