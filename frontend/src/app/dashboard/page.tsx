@@ -12,12 +12,14 @@ import {
   Clock,
   Compass,
   Lightbulb,
+  Plus,
   RefreshCw,
   Users,
 } from "lucide-react";
 
 import { SignedIn, SignedOut } from "@/auth/clerk";
 import { DashboardPageLayout } from "@/components/templates/DashboardPageLayout";
+import { TaskComposer } from "@/components/executive/TaskComposer";
 import { cn } from "@/lib/utils";
 import {
   api,
@@ -108,6 +110,7 @@ export default function OverviewPage() {
   const [data, setData] = useState<OverviewData | null>(null);
   const [loading, setLoading] = useState(true);
   const [seeding, setSeeding] = useState(false);
+  const [composerOpen, setComposerOpen] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const loadData = () => {
@@ -140,6 +143,14 @@ export default function OverviewPage() {
       signedOut={{ message: "Sign in to access Mission Control", forceRedirectUrl: "/dashboard" }}
       title="Overview"
       description="What matters now"
+      headerActions={
+        <button
+          onClick={() => setComposerOpen(true)}
+          className="flex items-center gap-1.5 rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-slate-800"
+        >
+          <Plus className="h-3.5 w-3.5" /> New Task
+        </button>
+      }
     >
       <SignedOut>
         <div className="py-20 text-center text-slate-500">
@@ -377,6 +388,11 @@ export default function OverviewPage() {
               )}
           </div>
         )}
+        <TaskComposer
+          open={composerOpen}
+          onClose={() => setComposerOpen(false)}
+          onCreated={() => loadData()}
+        />
       </SignedIn>
     </DashboardPageLayout>
   );

@@ -84,8 +84,12 @@ class Settings(BaseSettings):
     # OpenClaw gateway runtime compatibility
     gateway_min_version: str = "2026.02.9"
 
-    # OpenClaw installation directory for reading agent config
+    # OpenClaw installation directory for reading agent config (local mode)
     openclaw_dir: str = ""
+
+    # Local bridge URL for skills editing in cloud mode (e.g. http://localhost:8100)
+    bridge_url: str = ""
+    bridge_token: str = ""
 
     # Logging
     log_level: str = "INFO"

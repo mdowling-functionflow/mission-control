@@ -212,6 +212,56 @@ export interface ValidationResult {
   checks: Array<{ name: string; passed: boolean; message: string }>;
 }
 
+// ─── Task Composer Types ─────────────────────────────────────────────
+
+export interface TaskAssignmentInput {
+  executive_agent_id: string;
+  role: string;
+  order_index?: number;
+}
+
+export interface TaskAssignmentRead {
+  id: string;
+  task_id: string;
+  executive_agent_id: string;
+  agent_display_name: string | null;
+  agent_avatar_emoji: string | null;
+  agent_executive_role: string | null;
+  role: string;
+  status: string;
+  order_index: number;
+  last_update: string | null;
+  last_update_at: string | null;
+  created_at: string;
+}
+
+export interface ComposedTask {
+  id: string;
+  organization_id: string;
+  title: string;
+  description: string | null;
+  original_request: string | null;
+  task_type: string;
+  collaboration_mode: string | null;
+  status: string;
+  assignments: TaskAssignmentRead[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AgentSuggestion {
+  executive_agent_id: string;
+  display_name: string;
+  avatar_emoji: string | null;
+  reason: string;
+}
+
+export interface SuggestAgentsResponse {
+  suggestions: AgentSuggestion[];
+  recommended_mode: string | null;
+  reason: string;
+}
+
 // ─── API Calls ───────────────────────────────────────────────────────
 
 export const api = {
@@ -242,6 +292,40 @@ export const api = {
     global: (status?: string) =>
       execFetch<GlobalApproval[]>(
         `/api/v1/approvals/global${status ? `?status=${status}` : ""}`,
+      ),
+  },
+
+  tasks: {
+    list: (status?: string) =>
+      execFetch<ComposedTask[]>(
+        `/api/v1/composed-tasks${status ? `?status=${status}` : ""}`,
+      ),
+    get: (id: string) => execFetch<ComposedTask>(`/api/v1/composed-tasks/${id}`),
+    create: (data: {
+      title: string;
+      description?: string;
+      original_request?: string;
+      task_type?: string;
+      collaboration_mode?: string | null;
+      assignments?: TaskAssignmentInput[];
+    }) =>
+      execFetch<ComposedTask>("/api/v1/composed-tasks", {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+    update: (id: string, data: { status?: string; title?: string; description?: string }) =>
+      execFetch<ComposedTask>(`/api/v1/composed-tasks/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify(data),
+      }),
+    addAgentUpdate: (id: string, agentId: string, message: string) =>
+      execFetch<ComposedTask>(`/api/v1/composed-tasks/${id}/agent-update`, {
+        method: "POST",
+        body: JSON.stringify({ executive_agent_id: agentId, message }),
+      }),
+    suggestAgents: (description: string) =>
+      execFetch<SuggestAgentsResponse>(
+        `/api/v1/composed-tasks/suggest-agents?description=${encodeURIComponent(description)}`,
       ),
   },
 

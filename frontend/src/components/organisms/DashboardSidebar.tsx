@@ -8,6 +8,7 @@ import {
   Compass,
   FileCode,
   Lightbulb,
+  ListTodo,
   Settings,
   Users,
   CalendarCheck,
@@ -28,6 +29,7 @@ const NAV_ITEMS: ReadonlyArray<{
 }> = [
   { href: "/dashboard", label: "Overview", icon: Compass, matchExact: true },
   { href: "/executive-agents", label: "Agents", icon: Users },
+  { href: "/tasks", label: "Tasks", icon: ListTodo },
   { href: "/approvals", label: "Approvals", icon: CheckCircle2 },
   { href: "/weekly-review", label: "Weekly Review", icon: CalendarCheck },
   { href: "/improvements", label: "Improvements", icon: Lightbulb },

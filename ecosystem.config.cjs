@@ -21,5 +21,18 @@ module.exports = {
       max_restarts: 5,
       restart_delay: 3000,
     },
+    {
+      name: "mc-bridge",
+      cwd: "./bridge",
+      script: "../backend/.venv/bin/uvicorn",
+      args: "app:app --host 0.0.0.0 --port 8100",
+      interpreter: "none",
+      env: {
+        BRIDGE_TOKEN: "mc-bridge-local-dev-token-2026",
+        OPENCLAW_DIR: "/Users/michaeldowling/.openclaw",
+      },
+      max_restarts: 5,
+      restart_delay: 3000,
+    },
   ],
 };

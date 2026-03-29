@@ -1,0 +1,293 @@
+"""
+Local Bridge — a lightweight companion service for Mission Control.
+
+Runs on Michael's machine alongside OpenClaw. Provides authenticated
+filesystem access for skills editing and other local-only operations.
+The cloud backend proxies requests here when BRIDGE_URL is configured.
+"""
+
+from __future__ import annotations
+
+import base64
+import os
+from datetime import datetime, UTC
+from pathlib import Path
+
+from fastapi import Depends, FastAPI, HTTPException, Header, status
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+
+# ---------------------------------------------------------------------------
+# Config
+# ---------------------------------------------------------------------------
+
+BRIDGE_TOKEN = os.environ.get("BRIDGE_TOKEN", "")
+OPENCLAW_DIR = os.environ.get("OPENCLAW_DIR", str(Path.home() / ".openclaw"))
+
+app = FastAPI(title="Mission Control Local Bridge", version="0.1.0")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# ---------------------------------------------------------------------------
+# Auth
+# ---------------------------------------------------------------------------
+
+
+async def verify_token(x_bridge_token: str = Header(...)):
+    if not BRIDGE_TOKEN:
+        raise HTTPException(status_code=500, detail="BRIDGE_TOKEN not configured")
+    if x_bridge_token != BRIDGE_TOKEN:
+        raise HTTPException(status_code=401, detail="Invalid bridge token")
+
+
+# ---------------------------------------------------------------------------
+# Schemas
+# ---------------------------------------------------------------------------
+
+KEY_FILES = {"SKILL.md", "README.md", "AGENTS.md", "SOUL.md", "config.json", "config.yaml"}
+READABLE_EXTENSIONS = {".md", ".txt", ".json", ".yaml", ".yml", ".toml", ".sh", ".py", ".js", ".ts"}
+MAX_FILE_SIZE = 100_000
+
+
+class SkillSummary(BaseModel):
+    name: str
+    path: str
+    encoded_path: str
+    summary: str | None = None
+    source: str
+    last_modified: str | None = None
+    file_count: int = 0
+
+
+class SkillFile(BaseModel):
+    name: str
+    path: str
+    content: str
+    size: int
+
+
+class SkillDetail(BaseModel):
+    name: str
+    path: str
+    encoded_path: str
+    summary: str | None = None
+    source: str
+    files: list[SkillFile] = []
+    all_files: list[str] = []
+
+
+class ChangeRequest(BaseModel):
+    request: str
+
+
+class ChangeProposal(BaseModel):
+    request: str
+    affected_files: list[str] = []
+    current_content: dict[str, str] = {}
+    rationale: str = ""
+    risks: list[str] = []
+
+
+class ApplyRequest(BaseModel):
+    file_path: str
+    new_content: str
+
+
+class ValidationCheck(BaseModel):
+    name: str
+    passed: bool
+    message: str
+
+
+class ValidationResult(BaseModel):
+    success: bool
+    checks: list[ValidationCheck] = []
+
+
+# ---------------------------------------------------------------------------
+# Routes
+# ---------------------------------------------------------------------------
+
+
+@app.get("/health")
+async def health():
+    return {"ok": True, "openclaw_dir": OPENCLAW_DIR}
+
+
+@app.get("/skills", response_model=list[SkillSummary], dependencies=[Depends(verify_token)])
+async def list_skills():
+    results: list[SkillSummary] = []
+    for source_label, skill_dir in _get_skill_dirs():
+        if not skill_dir.is_dir():
+            continue
+        for entry in sorted(skill_dir.iterdir()):
+            if not entry.is_dir() or entry.name.startswith("."):
+                continue
+            encoded = base64.urlsafe_b64encode(str(entry).encode()).decode()
+            results.append(SkillSummary(
+                name=entry.name,
+                path=str(entry),
+                encoded_path=encoded,
+                summary=_read_skill_summary(entry),
+                source=source_label,
+                last_modified=_get_dir_mtime(entry),
+                file_count=sum(1 for f in entry.iterdir() if f.is_file()),
+            ))
+    return results
+
+
+@app.get("/skills/{encoded_path}", response_model=SkillDetail, dependencies=[Depends(verify_token)])
+async def get_skill(encoded_path: str):
+    skill_dir = _decode_path(encoded_path)
+    files: list[SkillFile] = []
+    all_files: list[str] = []
+
+    for entry in sorted(skill_dir.iterdir()):
+        if not entry.is_file():
+            continue
+        all_files.append(entry.name)
+        if entry.name in KEY_FILES or (
+            entry.suffix in READABLE_EXTENSIONS and entry.stat().st_size < MAX_FILE_SIZE
+        ):
+            try:
+                content = entry.read_text(encoding="utf-8", errors="replace")
+                files.append(SkillFile(name=entry.name, path=str(entry), content=content, size=len(content)))
+            except OSError:
+                pass
+
+    source = "workspace/skills" if "workspace/skills" in str(skill_dir) else "skills"
+    return SkillDetail(
+        name=skill_dir.name,
+        path=str(skill_dir),
+        encoded_path=encoded_path,
+        summary=_read_skill_summary(skill_dir),
+        source=source,
+        files=files,
+        all_files=all_files,
+    )
+
+
+@app.post("/skills/{encoded_path}/propose-change", response_model=ChangeProposal, dependencies=[Depends(verify_token)])
+async def propose_change(encoded_path: str, body: ChangeRequest):
+    skill_dir = _decode_path(encoded_path)
+    affected: list[str] = []
+    content: dict[str, str] = {}
+
+    for fname in ("SKILL.md", "README.md"):
+        fpath = skill_dir / fname
+        if fpath.exists():
+            affected.append(fname)
+            content[fname] = fpath.read_text(encoding="utf-8", errors="replace")
+
+    return ChangeProposal(
+        request=body.request,
+        affected_files=affected,
+        current_content=content,
+        rationale=f"Change requested: {body.request}",
+        risks=["Ensure the skill still functions after editing.", "Review for unintended prompt changes."],
+    )
+
+
+@app.post("/skills/{encoded_path}/apply-change", response_model=ValidationResult, dependencies=[Depends(verify_token)])
+async def apply_change(encoded_path: str, body: ApplyRequest):
+    skill_dir = _decode_path(encoded_path)
+    target = skill_dir / body.file_path
+
+    # Security: ensure within skill dir
+    try:
+        target.resolve().relative_to(skill_dir.resolve())
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Target outside skill directory")
+
+    try:
+        target.write_text(body.new_content, encoding="utf-8")
+    except OSError as e:
+        return ValidationResult(success=False, checks=[
+            ValidationCheck(name="write", passed=False, message=str(e))
+        ])
+
+    checks: list[ValidationCheck] = []
+    skill_md = skill_dir / "SKILL.md"
+    checks.append(ValidationCheck(
+        name="skill_md_exists",
+        passed=skill_md.exists(),
+        message="SKILL.md exists" if skill_md.exists() else "SKILL.md missing!",
+    ))
+    if skill_md.exists():
+        try:
+            text = skill_md.read_text(encoding="utf-8")
+            checks.append(ValidationCheck(
+                name="skill_md_readable",
+                passed=len(text) > 0,
+                message=f"SKILL.md readable ({len(text)} chars)",
+            ))
+        except OSError:
+            checks.append(ValidationCheck(name="skill_md_readable", passed=False, message="Cannot read"))
+
+    if target.exists():
+        written = target.read_text(encoding="utf-8")
+        checks.append(ValidationCheck(
+            name="file_written",
+            passed=written == body.new_content,
+            message=f"{body.file_path} written ({len(written)} chars)",
+        ))
+
+    return ValidationResult(success=all(c.passed for c in checks), checks=checks)
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _get_skill_dirs() -> list[tuple[str, Path]]:
+    base = Path(OPENCLAW_DIR)
+    return [("skills", base / "skills"), ("workspace/skills", base / "workspace" / "skills")]
+
+
+def _decode_path(encoded: str) -> Path:
+    try:
+        decoded = base64.urlsafe_b64decode(encoded).decode()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid path encoding")
+    p = Path(decoded)
+    if not p.is_dir():
+        raise HTTPException(status_code=404, detail="Skill not found")
+    try:
+        p.resolve().relative_to(Path(OPENCLAW_DIR).resolve())
+    except ValueError:
+        raise HTTPException(status_code=403, detail="Path outside OpenClaw directory")
+    return p
+
+
+def _read_skill_summary(d: Path) -> str | None:
+    f = d / "SKILL.md"
+    if not f.exists():
+        return None
+    try:
+        for line in f.read_text(encoding="utf-8", errors="replace").split("\n"):
+            line = line.strip()
+            if line and not line.startswith("#") and not line.startswith("---"):
+                return line[:200]
+    except OSError:
+        pass
+    return None
+
+
+def _get_dir_mtime(d: Path) -> str | None:
+    try:
+        mtimes = [f.stat().st_mtime for f in d.iterdir() if f.is_file()]
+        if mtimes:
+            return datetime.fromtimestamp(max(mtimes), tz=UTC).replace(tzinfo=None).isoformat()
+    except OSError:
+        pass
+    return None
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8100)
