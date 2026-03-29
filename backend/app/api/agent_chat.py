@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
+import json as json_lib
+import subprocess
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, status
@@ -9,13 +12,11 @@ from sqlmodel import SQLModel, col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from app.api.deps import ORG_MEMBER_DEP, SESSION_DEP
+from app.core.config import settings
 from app.core.logging import get_logger
 from app.core.time import utcnow
 from app.models.agent_messages import AgentMessage
-from app.models.agents import Agent
-from app.models.boards import Board
 from app.models.executive_agents import ExecutiveAgent
-from app.services.openclaw.gateway_dispatch import GatewayDispatchService
 from app.services.organizations import OrganizationContext
 
 logger = get_logger(__name__)
@@ -52,7 +53,7 @@ async def list_messages(
         .limit(limit)
     )
     result = await session.exec(stmt)
-    messages = list(reversed(result.all()))  # Oldest first for display
+    messages = list(reversed(result.all()))
     return [
         ChatMessageRead(
             id=str(m.id),
@@ -71,7 +72,7 @@ async def send_message(
     session: AsyncSession = SESSION_DEP,
     ctx: OrganizationContext = ORG_MEMBER_DEP,
 ) -> ChatMessageRead:
-    """Send a message to an agent and dispatch to their OpenClaw session."""
+    """Send a message to an agent via OpenClaw CLI and return the response."""
     exec_agent = await ExecutiveAgent.objects.filter_by(
         id=agent_id,
         organization_id=ctx.organization.id,
@@ -90,17 +91,25 @@ async def send_message(
     await session.commit()
     await session.refresh(user_msg)
 
-    # Dispatch to agent via gateway (best-effort)
+    # Execute agent via OpenClaw CLI and capture response
     try:
-        await _dispatch_to_agent(session, exec_agent, body.content)
+        response_text = await _exec_agent_cli(exec_agent.openclaw_agent_id, body.content)
+        if response_text:
+            agent_msg = AgentMessage(
+                organization_id=ctx.organization.id,
+                executive_agent_id=agent_id,
+                role="agent",
+                content=response_text,
+            )
+            session.add(agent_msg)
+            await session.commit()
     except Exception as exc:
-        logger.warning("agent_chat.dispatch.failed", agent=exec_agent.display_name, error=str(exc))
-        # Save a system note about dispatch failure
+        logger.warning("agent_chat.exec.failed", agent=exec_agent.display_name, error=str(exc))
         err_msg = AgentMessage(
             organization_id=ctx.organization.id,
             executive_agent_id=agent_id,
             role="system",
-            content=f"Could not dispatch to {exec_agent.display_name}: {str(exc)[:200]}",
+            content=f"Could not reach {exec_agent.display_name}: {str(exc)[:200]}",
         )
         session.add(err_msg)
         await session.commit()
@@ -120,13 +129,7 @@ async def receive_agent_message(
     session: AsyncSession = SESSION_DEP,
     ctx: OrganizationContext = ORG_MEMBER_DEP,
 ) -> ChatMessageRead:
-    """Record an agent response message.
-
-    Called by:
-    - Gateway webhook when agent responds
-    - OpenClaw webhook worker
-    - Manual testing / simulation
-    """
+    """Record an agent response message (manual or webhook)."""
     exec_agent = await ExecutiveAgent.objects.filter_by(
         id=agent_id,
         organization_id=ctx.organization.id,
@@ -152,40 +155,61 @@ async def receive_agent_message(
     )
 
 
-async def _dispatch_to_agent(
-    session: AsyncSession,
-    exec_agent: ExecutiveAgent,
-    message: str,
-) -> None:
-    """Send a message to the agent's OpenClaw session via gateway."""
-    stmt = select(Agent).where(col(Agent.name) == exec_agent.openclaw_agent_id)
-    result = await session.exec(stmt)
-    board_agents = result.all()
+async def _exec_agent_cli(openclaw_agent_id: str, message: str) -> str | None:
+    """Execute an agent turn via the OpenClaw CLI and return the response text."""
+    cmd = [
+        "openclaw", "agent",
+        "--agent", openclaw_agent_id,
+        "--message", message,
+        "--json",
+    ]
 
-    target = None
-    for ba in board_agents:
-        if ba.openclaw_session_id:
-            target = ba
-            break
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=120)
+    except asyncio.TimeoutError:
+        logger.warning("agent_chat.cli.timeout", agent=openclaw_agent_id)
+        return "Agent is taking too long to respond. The request has been submitted and may complete in the background."
+    except FileNotFoundError:
+        logger.error("agent_chat.cli.not_found")
+        return None
 
-    if not target or not target.openclaw_session_id or not target.board_id:
-        logger.info("agent_chat.no_session", agent=exec_agent.display_name)
-        return
+    if proc.returncode != 0:
+        err = stderr.decode("utf-8", errors="replace").strip()
+        logger.warning("agent_chat.cli.error", agent=openclaw_agent_id, error=err[:200])
+        return f"Agent error: {err[:500]}" if err else None
 
-    board = await Board.objects.by_id(target.board_id).first(session)
-    if not board:
-        return
+    output = stdout.decode("utf-8", errors="replace").strip()
+    if not output:
+        return None
 
-    dispatch = GatewayDispatchService(session)
-    config = await dispatch.optional_gateway_config_for_board(board)
-    if not config:
-        return
+    # Parse JSON response from openclaw agent --json
+    try:
+        data = json_lib.loads(output)
+        if isinstance(data, dict):
+            # OpenClaw format: { result: { payloads: [{ text: "..." }] } }
+            result = data.get("result", {})
+            payloads = result.get("payloads", [])
+            if payloads:
+                texts = [p.get("text", "") for p in payloads if p.get("text")]
+                if texts:
+                    return "\n\n".join(texts)
 
-    await dispatch.try_send_agent_message(
-        session_key=target.openclaw_session_id,
-        config=config,
-        agent_name=target.name,
-        message=f"[From Michael via Mission Control]\n\n{message}",
-        deliver=True,
-    )
-    logger.info("agent_chat.dispatched", agent=exec_agent.display_name)
+            # Fallback: check other common fields
+            for key in ("response", "reply", "message", "content", "text", "output"):
+                if key in data and isinstance(data[key], str):
+                    return data[key]
+
+            # Check messages array
+            if "messages" in data and isinstance(data["messages"], list):
+                agent_msgs = [m for m in data["messages"] if m.get("role") == "assistant"]
+                if agent_msgs:
+                    return agent_msgs[-1].get("content", str(agent_msgs[-1]))
+
+        return output
+    except json_lib.JSONDecodeError:
+        return output
