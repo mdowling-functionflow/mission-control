@@ -271,29 +271,61 @@ function ComposerBar({ agents, onCreated }: { agents: ExecutiveAgent[]; onCreate
     finally { setSuggesting(false); }
   };
 
-  const handleSend = async () => {
-    if (!request.trim() || selectedAgents.size === 0) return;
+  const handleSend = async (overrideAgents?: Set<string>) => {
+    const agentsToUse = overrideAgents || selectedAgents;
+    if (!request.trim() || agentsToUse.size === 0) return;
+    const text = request.trim();
+    // Clear input immediately
+    setRequest("");
     setCreating(true);
     try {
-      const assignments: TaskAssignmentInput[] = Array.from(selectedAgents).map((id, i) => ({
+      const assignments: TaskAssignmentInput[] = Array.from(agentsToUse).map((id, i) => ({
         executive_agent_id: id,
         role: i === 0 ? "primary" : "collaborator",
         order_index: i,
       }));
       await api.tasks.create({
-        title: request.slice(0, 100),
-        original_request: request,
-        task_type: selectedAgents.size > 1 ? "multi_agent" : "single_agent",
-        collaboration_mode: selectedAgents.size > 1 ? collaborationMode : null,
+        title: text.slice(0, 100),
+        original_request: text,
+        task_type: agentsToUse.size > 1 ? "multi_agent" : "single_agent",
+        collaboration_mode: agentsToUse.size > 1 ? collaborationMode : null,
         assignments,
       });
-      setRequest("");
       setSelectedAgents(new Set());
       setCollaborationMode(null);
       setShowAgents(false);
       onCreated();
-    } catch (e) { console.error(e); }
+    } catch (e) {
+      console.error(e);
+      setRequest(text); // Restore on failure
+    }
     finally { setCreating(false); }
+  };
+
+  // Auto-suggest and send in one step
+  const handleEnter = async () => {
+    if (!request.trim()) return;
+    if (selectedAgents.size > 0) {
+      handleSend();
+    } else {
+      // Auto-suggest then immediately send
+      setSuggesting(true);
+      try {
+        const result = await api.tasks.suggestAgents(request);
+        const ids = new Set(result.suggestions.map((s) => s.executive_agent_id));
+        if (ids.size > 0) {
+          setSelectedAgents(ids);
+          if (result.recommended_mode) setCollaborationMode(result.recommended_mode);
+          setShowAgents(true);
+          // Send immediately with suggested agents
+          await handleSend(ids);
+        } else {
+          // No suggestions — show agent selector
+          setShowAgents(true);
+        }
+      } catch (e) { console.error(e); }
+      finally { setSuggesting(false); }
+    }
   };
 
   // Auto-resize textarea
@@ -363,8 +395,7 @@ function ComposerBar({ agents, onCreated }: { agents: ExecutiveAgent[]; onCreate
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
-                if (selectedAgents.size > 0) handleSend();
-                else if (request.trim()) handleSuggest();
+                handleEnter();
               }
             }}
           />
@@ -392,8 +423,8 @@ function ComposerBar({ agents, onCreated }: { agents: ExecutiveAgent[]; onCreate
             <Sparkles className="h-4 w-4" />
           </button>
           <button
-            onClick={handleSend}
-            disabled={!request.trim() || selectedAgents.size === 0 || creating}
+            onClick={() => handleEnter()}
+            disabled={!request.trim() || creating || suggesting}
             className="rounded-xl p-2.5 bg-[color:var(--accent)] text-white transition-fast disabled:opacity-30"
             title="Send (Enter)"
           >
