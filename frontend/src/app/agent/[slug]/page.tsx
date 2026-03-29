@@ -19,6 +19,7 @@ import {
   MessageSquare,
   Send,
   Users,
+  X,
   XCircle,
 } from "lucide-react";
 
@@ -178,6 +179,7 @@ function ChatTab({ agent }: { agent: ExecutiveAgent }) {
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   const loadMessages = () => {
     api.chat.messages(agent.id).then(setMessages).catch(console.error).finally(() => setLoading(false));
@@ -185,7 +187,7 @@ function ChatTab({ agent }: { agent: ExecutiveAgent }) {
 
   useEffect(() => {
     loadMessages();
-    const iv = setInterval(loadMessages, 10_000);
+    const iv = setInterval(loadMessages, 8_000);
     return () => clearInterval(iv);
   }, [agent.id]);
 
@@ -194,25 +196,99 @@ function ChatTab({ agent }: { agent: ExecutiveAgent }) {
   }, [messages]);
 
   const handleSend = async () => {
-    if (!input.trim() || sending) return;
+    const text = input.trim();
+    if (!text || sending) return;
+
+    // Clear input immediately (before async)
+    setInput("");
     setSending(true);
+
     try {
-      const msg = await api.chat.send(agent.id, input);
+      const msg = await api.chat.send(agent.id, text);
       setMessages((prev) => [...prev, msg]);
+      // Refetch to pick up any system messages from dispatch
+      setTimeout(loadMessages, 1000);
+    } catch (e) {
+      console.error(e);
+      // Restore input on failure
+      setInput(text);
+    } finally {
+      setSending(false);
+      inputRef.current?.focus();
+    }
+  };
+
+  const handleClear = async () => {
+    setMessages([]);
+  };
+
+  // Slash commands
+  const SLASH_COMMANDS = [
+    { cmd: "/help", desc: "Show available commands" },
+    { cmd: "/status", desc: "Agent status" },
+    { cmd: "/focus", desc: "Current focus" },
+    { cmd: "/clear", desc: "Clear chat" },
+  ];
+
+  const showSlashMenu = input.startsWith("/") && !input.includes(" ");
+  const filteredCmds = SLASH_COMMANDS.filter((c) => c.cmd.startsWith(input));
+
+  const handleSlashCommand = (cmd: string) => {
+    if (cmd === "/clear") {
+      handleClear();
       setInput("");
-    } catch (e) { console.error(e); }
-    finally { setSending(false); }
+      return;
+    }
+    if (cmd === "/status") {
+      setInput("");
+      // Insert a synthetic agent status message
+      const statusMsg: ChatMessage = {
+        id: `status-${Date.now()}`,
+        role: "agent",
+        content: `**${agent.display_name}** (${agent.executive_role})\nStatus: ${agent.status}\nFocus: ${agent.current_focus || "Not set"}\nRisk: ${agent.current_risk || "None"}\nPending approvals: ${agent.pending_approvals_count}\nActive tasks: ${agent.active_tasks_count}`,
+        created_at: new Date().toISOString(),
+      };
+      setMessages((prev) => [...prev, statusMsg]);
+      return;
+    }
+    if (cmd === "/focus") {
+      setInput("");
+      const focusMsg: ChatMessage = {
+        id: `focus-${Date.now()}`,
+        role: "agent",
+        content: agent.current_focus || "No current focus set. You can set one from the Agent tab.",
+        created_at: new Date().toISOString(),
+      };
+      setMessages((prev) => [...prev, focusMsg]);
+      return;
+    }
+    if (cmd === "/help") {
+      setInput("");
+      const helpMsg: ChatMessage = {
+        id: `help-${Date.now()}`,
+        role: "system",
+        content: SLASH_COMMANDS.map((c) => `${c.cmd} — ${c.desc}`).join("\n"),
+        created_at: new Date().toISOString(),
+      };
+      setMessages((prev) => [...prev, helpMsg]);
+      return;
+    }
+    // Default: send as regular message
+    setInput(cmd + " ");
   };
 
   return (
-    <div className="flex flex-col h-[500px]">
-      {/* Messages */}
+    <div className="flex flex-col" style={{ height: "calc(100vh - 320px)", minHeight: "400px" }}>
+      {/* Messages — scrollable */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto space-y-3 pb-4">
         {loading ? <Spinner /> : messages.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-center">
             <MessageSquare className="h-8 w-8 mb-2" style={{ color: "var(--text-quiet)" }} />
             <p className="text-sm" style={{ color: "var(--text-muted)" }}>
               Start a conversation with {agent.display_name}
+            </p>
+            <p className="text-xs mt-1" style={{ color: "var(--text-quiet)" }}>
+              Type / for commands
             </p>
           </div>
         ) : (
@@ -223,8 +299,8 @@ function ChatTab({ agent }: { agent: ExecutiveAgent }) {
                 m.role === "user" ? "justify-end" : "justify-start",
               )}>
                 {m.role === "system" ? (
-                  <div className="w-full text-center">
-                    <p className="text-[11px] italic" style={{ color: "var(--text-quiet)" }}>{m.content}</p>
+                  <div className="w-full rounded-lg p-3" style={{ background: "var(--surface-muted)" }}>
+                    <p className="text-xs whitespace-pre-wrap" style={{ color: "var(--text-muted)" }}>{m.content}</p>
                   </div>
                 ) : (
                   <div className="flex items-start gap-2 max-w-[85%]">
@@ -250,7 +326,7 @@ function ChatTab({ agent }: { agent: ExecutiveAgent }) {
                 )}
               </div>
             ))}
-            {/* Typing indicator — show when last message is from user */}
+            {/* Typing indicator */}
             {messages.length > 0 && messages[messages.length - 1].role === "user" && (
               <div className="flex items-center gap-2">
                 <span className="text-lg">{agent.avatar_emoji || "🤖"}</span>
@@ -267,16 +343,53 @@ function ChatTab({ agent }: { agent: ExecutiveAgent }) {
         )}
       </div>
 
-      {/* Input */}
-      <div className="border-t pt-3 flex gap-2" style={{ borderColor: "var(--border)" }}>
+      {/* Slash command menu */}
+      {showSlashMenu && filteredCmds.length > 0 && (
+        <div className="border rounded-xl p-1 mb-2 shadow-elevation-2" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
+          {filteredCmds.map((c) => (
+            <button
+              key={c.cmd}
+              onClick={() => handleSlashCommand(c.cmd)}
+              className="flex items-center gap-3 w-full rounded-lg px-3 py-2 text-xs transition-fast hover:bg-[color:var(--surface-muted)]"
+            >
+              <span className="font-mono font-medium" style={{ color: "var(--accent)" }}>{c.cmd}</span>
+              <span style={{ color: "var(--text-muted)" }}>{c.desc}</span>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Input — fixed at bottom */}
+      <div className="border-t pt-3 flex gap-2 shrink-0" style={{ borderColor: "var(--border)" }}>
         <input
+          ref={inputRef}
           className="flex-1 rounded-xl border px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[color:var(--accent)]/20"
           style={{ borderColor: "var(--border)", background: "var(--surface-muted)", color: "var(--text)" }}
-          placeholder={`Message ${agent.display_name}...`}
+          placeholder={`Message ${agent.display_name}... (/ for commands)`}
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              if (showSlashMenu && filteredCmds.length > 0) {
+                handleSlashCommand(filteredCmds[0].cmd);
+              } else {
+                handleSend();
+              }
+            }
+          }}
+          autoFocus
         />
+        {messages.length > 0 && (
+          <button
+            onClick={handleClear}
+            className="rounded-xl p-2.5 transition-fast hover:bg-[color:var(--surface-muted)]"
+            style={{ color: "var(--text-quiet)" }}
+            title="Clear chat"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        )}
         <button
           onClick={handleSend}
           disabled={!input.trim() || sending}
