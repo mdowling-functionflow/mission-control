@@ -2,207 +2,141 @@
 
 export const dynamic = "force-dynamic";
 
-import { useCallback, useMemo } from "react";
+import { useEffect, useRef, useState } from "react";
+import { CheckCircle2, Clock, XCircle } from "lucide-react";
 
-import { SignedIn, SignedOut, SignInButton, useAuth } from "@/auth/clerk";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { SignedIn, SignedOut } from "@/auth/clerk";
+import { DashboardPageLayout } from "@/components/templates/DashboardPageLayout";
+import { cn } from "@/lib/utils";
+import { api, type GlobalApproval } from "@/lib/executive-api";
 
-import type { ApiError } from "@/api/mutator";
-import {
-  listApprovalsApiV1BoardsBoardIdApprovalsGet,
-  updateApprovalApiV1BoardsBoardIdApprovalsApprovalIdPatch,
-} from "@/api/generated/approvals/approvals";
-import { useListBoardsApiV1BoardsGet } from "@/api/generated/boards/boards";
-import type { ApprovalRead, BoardRead } from "@/api/generated/model";
-import { BoardApprovalsPanel } from "@/components/BoardApprovalsPanel";
-import { DashboardSidebar } from "@/components/organisms/DashboardSidebar";
-import { DashboardShell } from "@/components/templates/DashboardShell";
-import { Button } from "@/components/ui/button";
+const STATUS_TABS = ["all", "pending", "approved", "rejected"] as const;
 
-type GlobalApprovalsData = {
-  approvals: ApprovalRead[];
-  warnings: string[];
-};
+export default function ApprovalsPage() {
+  const [approvals, setApprovals] = useState<GlobalApproval[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState<string>("pending");
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-function GlobalApprovalsInner() {
-  const { isSignedIn } = useAuth();
-  const queryClient = useQueryClient();
+  const loadData = (status?: string) => {
+    const filter = status === "all" ? undefined : status;
+    api.approvals
+      .global(filter)
+      .then(setApprovals)
+      .catch(console.error)
+      .finally(() => setLoading(false));
+  };
 
-  const boardsQuery = useListBoardsApiV1BoardsGet(undefined, {
-    query: {
-      enabled: Boolean(isSignedIn),
-      refetchInterval: 30_000,
-      refetchOnMount: "always",
-      retry: false,
-    },
-    request: { cache: "no-store" },
-  });
+  useEffect(() => {
+    loadData(activeTab);
+    intervalRef.current = setInterval(() => loadData(activeTab), 15_000);
+    return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
+  }, [activeTab]);
 
-  const boards = useMemo(() => {
-    if (boardsQuery.data?.status !== 200) return [];
-    return boardsQuery.data.data.items ?? [];
-  }, [boardsQuery.data]);
-
-  const boardLabelById = useMemo(() => {
-    const entries = boards.map((board: BoardRead) => [board.id, board.name]);
-    return Object.fromEntries(entries) as Record<string, string>;
-  }, [boards]);
-
-  const boardIdsKey = useMemo(() => {
-    const ids = boards.map((board) => board.id);
-    ids.sort();
-    return ids.join(",");
-  }, [boards]);
-
-  const approvalsKey = useMemo(
-    () => ["approvals", "global", boardIdsKey] as const,
-    [boardIdsKey],
-  );
-
-  const approvalsQuery = useQuery<GlobalApprovalsData, ApiError>({
-    queryKey: approvalsKey,
-    enabled: Boolean(isSignedIn && boards.length > 0),
-    refetchInterval: 15_000,
-    refetchOnMount: "always",
-    retry: false,
-    queryFn: async () => {
-      const results = await Promise.allSettled(
-        boards.map(async (board) => {
-          const response = await listApprovalsApiV1BoardsBoardIdApprovalsGet(
-            board.id,
-            { limit: 200 },
-            { cache: "no-store" },
-          );
-          if (response.status !== 200) {
-            throw new Error(
-              `Failed to load approvals for ${board.name} (status ${response.status}).`,
-            );
-          }
-          return { boardId: board.id, approvals: response.data.items ?? [] };
-        }),
-      );
-
-      const approvals: ApprovalRead[] = [];
-      const warnings: string[] = [];
-
-      for (const result of results) {
-        if (result.status === "fulfilled") {
-          approvals.push(...result.value.approvals);
-        } else {
-          warnings.push(result.reason?.message ?? "Unable to load approvals.");
-        }
-      }
-
-      return { approvals, warnings };
-    },
-  });
-
-  const updateApprovalMutation = useMutation<
-    Awaited<
-      ReturnType<
-        typeof updateApprovalApiV1BoardsBoardIdApprovalsApprovalIdPatch
-      >
-    >,
-    ApiError,
-    { boardId: string; approvalId: string; status: "approved" | "rejected" }
-  >({
-    mutationFn: ({ boardId, approvalId, status }) =>
-      updateApprovalApiV1BoardsBoardIdApprovalsApprovalIdPatch(
-        boardId,
-        approvalId,
-        { status },
-        { cache: "no-store" },
-      ),
-  });
-
-  const approvals = useMemo(
-    () => approvalsQuery.data?.approvals ?? [],
-    [approvalsQuery.data],
-  );
-  const warnings = useMemo(
-    () => approvalsQuery.data?.warnings ?? [],
-    [approvalsQuery.data],
-  );
-  const errorText = approvalsQuery.error?.message ?? null;
-
-  const handleDecision = useCallback(
-    (approvalId: string, status: "approved" | "rejected") => {
-      const approval = approvals.find((item) => item.id === approvalId);
-      const boardId = approval?.board_id;
-      if (!boardId) return;
-
-      updateApprovalMutation.mutate(
-        { boardId, approvalId, status },
-        {
-          onSuccess: (result) => {
-            if (result.status !== 200) return;
-            queryClient.setQueryData<GlobalApprovalsData>(
-              approvalsKey,
-              (prev) => {
-                if (!prev) return prev;
-                return {
-                  ...prev,
-                  approvals: prev.approvals.map((item) =>
-                    item.id === approvalId ? result.data : item,
-                  ),
-                };
-              },
-            );
-          },
-          onSettled: () => {
-            queryClient.invalidateQueries({ queryKey: approvalsKey });
-          },
-        },
-      );
-    },
-    [approvals, approvalsKey, queryClient, updateApprovalMutation],
-  );
-
-  const combinedError = useMemo(() => {
-    const parts: string[] = [];
-    if (errorText) parts.push(errorText);
-    if (warnings.length > 0) parts.push(warnings.join(" "));
-    return parts.length > 0 ? parts.join(" ") : null;
-  }, [errorText, warnings]);
+  const handleTabChange = (tab: string) => {
+    setActiveTab(tab);
+    setLoading(true);
+  };
 
   return (
-    <main className="flex-1 overflow-y-auto bg-gradient-to-br from-slate-50 to-slate-100">
-      <div className="p-4 md:p-6">
-        <div className="h-[calc(100vh-160px)] min-h-[300px] sm:min-h-[520px]">
-          <BoardApprovalsPanel
-            boardId="global"
-            approvals={approvals}
-            isLoading={boardsQuery.isLoading || approvalsQuery.isLoading}
-            error={combinedError}
-            onDecision={handleDecision}
-            scrollable
-            boardLabelById={boardLabelById}
-          />
+    <DashboardPageLayout
+      signedOut={{ message: "Sign in to access Mission Control", forceRedirectUrl: "/dashboard" }}
+      title="Approvals"
+      description="Review and decide on pending requests"
+    >
+      <SignedOut>
+        <div className="py-20 text-center text-slate-500">Sign in to continue.</div>
+      </SignedOut>
+      <SignedIn>
+        <div className="mx-auto max-w-4xl space-y-6">
+          {/* Tabs */}
+          <div className="flex gap-1 border-b border-slate-200">
+            {STATUS_TABS.map((tab) => (
+              <button
+                key={tab}
+                onClick={() => handleTabChange(tab)}
+                className={cn(
+                  "px-4 py-2 text-sm capitalize transition border-b-2",
+                  activeTab === tab
+                    ? "border-slate-900 text-slate-900 font-medium"
+                    : "border-transparent text-slate-500 hover:text-slate-700",
+                )}
+              >
+                {tab}
+                {tab === "pending" && approvals.length > 0 && activeTab === "pending" && (
+                  <span className="ml-1.5 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800">
+                    {approvals.length}
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+
+          {/* Content */}
+          {loading ? (
+            <div className="flex items-center justify-center py-16">
+              <div className="h-6 w-6 animate-spin rounded-full border-2 border-slate-300 border-t-slate-900" />
+            </div>
+          ) : approvals.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center">
+              <CheckCircle2 className="mx-auto h-8 w-8 text-slate-400" />
+              <p className="mt-3 text-sm text-slate-500">
+                {activeTab === "pending"
+                  ? "No pending approvals. All clear."
+                  : `No ${activeTab} approvals.`}
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {approvals.map((a) => (
+                <ApprovalCard key={a.id} approval={a} />
+              ))}
+            </div>
+          )}
         </div>
-      </div>
-    </main>
+      </SignedIn>
+    </DashboardPageLayout>
   );
 }
 
-export default function GlobalApprovalsPage() {
+function ApprovalCard({ approval: a }: { approval: GlobalApproval }) {
+  const StatusIcon =
+    a.status === "pending" ? Clock :
+    a.status === "approved" ? CheckCircle2 : XCircle;
+  const statusColor =
+    a.status === "pending" ? "text-amber-500" :
+    a.status === "approved" ? "text-emerald-500" : "text-red-500";
+
   return (
-    <DashboardShell>
-      <SignedOut>
-        <div className="flex h-full flex-col items-center justify-center gap-4 rounded-2xl surface-panel p-10 text-center">
-          <p className="text-sm text-muted">Sign in to view approvals.</p>
-          <SignInButton
-            mode="modal"
-            forceRedirectUrl="/approvals"
-            signUpForceRedirectUrl="/approvals"
-          >
-            <Button>Sign in</Button>
-          </SignInButton>
+    <div className="rounded-xl border border-slate-200 bg-white p-5">
+      <div className="flex items-start gap-3">
+        <StatusIcon className={cn("h-5 w-5 mt-0.5 shrink-0", statusColor)} />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2 flex-wrap">
+            {a.agent_emoji && <span className="text-lg">{a.agent_emoji}</span>}
+            <h3 className="text-sm font-semibold text-slate-900">{a.action_type}</h3>
+            <span className={cn(
+              "rounded-full px-2 py-0.5 text-[10px] font-medium",
+              a.status === "pending" && "bg-amber-100 text-amber-800",
+              a.status === "approved" && "bg-emerald-100 text-emerald-800",
+              a.status === "rejected" && "bg-red-100 text-red-800",
+            )}>
+              {a.status}
+            </span>
+          </div>
+
+          {a.rationale && (
+            <p className="text-xs text-slate-600 mt-1">{a.rationale}</p>
+          )}
+
+          <div className="mt-2 flex items-center gap-4 text-[11px] text-slate-400">
+            {a.agent_name && <span>{a.agent_name}</span>}
+            <span>{a.board_name}</span>
+            <span>Confidence: {Math.round(a.confidence)}%</span>
+            <span>{new Date(a.created_at).toLocaleDateString()}</span>
+          </div>
         </div>
-      </SignedOut>
-      <SignedIn>
-        <DashboardSidebar />
-        <GlobalApprovalsInner />
-      </SignedIn>
-    </DashboardShell>
+      </div>
+    </div>
   );
 }

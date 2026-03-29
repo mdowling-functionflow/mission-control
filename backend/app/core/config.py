@@ -84,6 +84,9 @@ class Settings(BaseSettings):
     # OpenClaw gateway runtime compatibility
     gateway_min_version: str = "2026.02.9"
 
+    # OpenClaw installation directory for reading agent config
+    openclaw_dir: str = ""
+
     # Logging
     log_level: str = "INFO"
     log_format: str = "text"

@@ -1,0 +1,25 @@
+module.exports = {
+  apps: [
+    {
+      name: "mc-backend",
+      cwd: "./backend",
+      script: ".venv/bin/uvicorn",
+      args: "app.main:app --host 0.0.0.0 --port 8000",
+      interpreter: "none",
+      env: {
+        PYTHONPATH: ".",
+      },
+      max_restarts: 5,
+      restart_delay: 3000,
+    },
+    {
+      name: "mc-frontend",
+      cwd: "./frontend",
+      script: "node_modules/.bin/next",
+      args: "start --port 3000",
+      interpreter: "none",
+      max_restarts: 5,
+      restart_delay: 3000,
+    },
+  ],
+};
