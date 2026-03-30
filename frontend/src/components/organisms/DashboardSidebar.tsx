@@ -12,6 +12,7 @@ import {
   Moon,
   Settings,
   Sun,
+  Users,
 } from "lucide-react";
 
 import {
@@ -40,6 +41,17 @@ export function DashboardSidebar() {
   const systemStatus =
     okValue === true ? "operational" : okValue === false || healthQuery.isError ? "degraded" : "unknown";
 
+  const workspaceOrder = ["main", "sales", "fundraising", "people", "strategy", "dcu", "life-admin"];
+  const sortedAgents = [...agents]
+    .filter((a) => a.sidebar_visible !== false)
+    .sort((a, b) => {
+      const ai = workspaceOrder.indexOf(a.openclaw_agent_id);
+      const bi = workspaceOrder.indexOf(b.openclaw_agent_id);
+      const ar = ai === -1 ? 999 : ai;
+      const br = bi === -1 ? 999 : bi;
+      return ar - br || a.display_name.localeCompare(b.display_name);
+    });
+
   return (
     <aside
       className="fixed inset-y-0 left-0 z-40 flex w-[280px] -translate-x-full flex-col border-r pt-16 transition-transform duration-200 ease-in-out [[data-sidebar=open]_&]:translate-x-0 md:relative md:inset-auto md:z-auto md:w-[200px] md:translate-x-0 md:pt-0 md:transition-none"
@@ -51,7 +63,7 @@ export function DashboardSidebar() {
           Workspaces
         </p>
         <nav className="space-y-0.5">
-          {agents.length > 0 ? agents.filter((a) => a.sidebar_visible !== false).map((agent) => (
+          {agents.length > 0 ? sortedAgents.map((agent) => (
             <NavItem
               key={agent.id}
               href={`/agent/${agent.openclaw_agent_id}`}
@@ -73,6 +85,7 @@ export function DashboardSidebar() {
             Manage
           </p>
           <nav className="space-y-0.5">
+            <NavItem href="/executive-agents" icon={<Users className="h-3.5 w-3.5" />} label="Agents" active={pathname.startsWith("/executive-agents")} />
             <NavItem href="/docs" icon={<FileText className="h-3.5 w-3.5" />} label="Docs" active={pathname.startsWith("/docs")} />
             <NavItem href="/schedules" icon={<Clock className="h-3.5 w-3.5" />} label="Schedules" active={pathname.startsWith("/schedules")} />
             <NavItem href="/skills-editor" icon={<FileCode className="h-3.5 w-3.5" />} label="Skills" active={pathname.startsWith("/skills-editor")} />
