@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import os
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, HTTPException, Query, status
@@ -61,6 +63,51 @@ class ThreadSendRequest(SQLModel):
 
 def _generate_session_id() -> str:
     return f"mc-thread-{uuid4().hex[:12]}"
+
+
+async def _generate_ai_title(user_message: str, agent_response: str | None = None) -> str | None:
+    """One-shot AI title generation. Called exactly once per thread, never again."""
+    api_key = os.environ.get("OPENAI_API_KEY")
+    if not api_key:
+        return None
+    try:
+        from openai import AsyncOpenAI
+        client = AsyncOpenAI(api_key=api_key, timeout=10.0)
+
+        exchange = f"User: {user_message[:300]}"
+        if agent_response:
+            exchange += f"\nAssistant: {agent_response[:300]}"
+
+        resp = await client.chat.completions.create(
+            model="gpt-4.1-nano",
+            messages=[
+                {
+                    "role": "system",
+                    "content": "Generate a very short title (3-6 words) for this conversation. "
+                    "Capture the core topic. No quotes, no trailing punctuation. "
+                    "Just the title, nothing else.",
+                },
+                {"role": "user", "content": exchange},
+            ],
+            max_tokens=20,
+            temperature=0.3,
+        )
+        title = resp.choices[0].message.content.strip().strip('"\'.')
+        return title[:60] if title else None
+    except Exception as exc:
+        logger.warning("ai_title.failed", error=str(exc))
+        return None
+
+
+def _fallback_title(content: str) -> str:
+    """Quick fallback title if AI call fails."""
+    text = content.strip()[:50]
+    if len(content.strip()) > 50:
+        # Truncate at word boundary
+        if " " in text[30:]:
+            text = text[:text.rindex(" ", 0, 50)]
+        text += "…"
+    return text or "New conversation"
 
 
 async def _thread_to_read(session: AsyncSession, thread: ChatThread) -> ChatThreadRead:
@@ -202,47 +249,28 @@ async def send_thread_message(
     )
     session.add(user_msg)
 
-    # Auto-title: set from first user message if thread has no title
+    # Auto-title: quick fallback now, AI title after agent responds
+    needs_ai_title = not thread.title
     if not thread.title:
-        thread.title = body.content[:40].strip()
-        if len(body.content) > 40:
-            thread.title += "…"
+        thread.title = _fallback_title(body.content)
 
     thread.updated_at = utcnow()
     session.add(thread)
     await session.commit()
     await session.refresh(user_msg)
 
-    # Execute agent with thread-specific session_id
-    try:
-        response_text = await _exec_agent_cli(
-            exec_agent.openclaw_agent_id,
-            body.content,
-            session_id=thread.session_id,
-        )
-        if response_text:
-            agent_msg = AgentMessage(
-                organization_id=ctx.organization.id,
-                executive_agent_id=thread.executive_agent_id,
-                thread_id=thread_id,
-                role="agent",
-                content=response_text,
-            )
-            session.add(agent_msg)
-            thread.updated_at = utcnow()
-            session.add(thread)
-            await session.commit()
-    except Exception as exc:
-        logger.warning("chat_thread.exec.failed", error=str(exc))
-        err_msg = AgentMessage(
-            organization_id=ctx.organization.id,
-            executive_agent_id=thread.executive_agent_id,
-            thread_id=thread_id,
-            role="system",
-            content=f"Could not reach {exec_agent.display_name}: {str(exc)[:200]}",
-        )
-        session.add(err_msg)
-        await session.commit()
+    # Fire off agent execution in background — don't block the HTTP response.
+    # The frontend polls every 8s and will pick up the agent's reply.
+    asyncio.create_task(_background_agent_exec(
+        org_id=ctx.organization.id,
+        agent_id=thread.executive_agent_id,
+        thread_id=thread_id,
+        openclaw_agent_id=exec_agent.openclaw_agent_id,
+        display_name=exec_agent.display_name,
+        user_message=body.content,
+        session_id=thread.session_id,
+        needs_ai_title=needs_ai_title,
+    ))
 
     return ThreadMessageRead(
         id=str(user_msg.id),
@@ -250,6 +278,69 @@ async def send_thread_message(
         content=user_msg.content,
         created_at=user_msg.created_at.isoformat(),
     )
+
+
+async def _background_agent_exec(
+    *,
+    org_id: UUID,
+    agent_id: UUID,
+    thread_id: UUID,
+    openclaw_agent_id: str,
+    display_name: str,
+    user_message: str,
+    session_id: str,
+    needs_ai_title: bool,
+) -> None:
+    """Background task: execute agent CLI, save response, optionally generate AI title."""
+    from app.api.agent_chat import _exec_agent_cli
+    from app.db.session import async_session_maker
+
+    response_text: str | None = None
+    async with async_session_maker() as session:
+        try:
+            response_text = await _exec_agent_cli(
+                openclaw_agent_id,
+                user_message,
+                session_id=session_id,
+            )
+            if response_text:
+                agent_msg = AgentMessage(
+                    organization_id=org_id,
+                    executive_agent_id=agent_id,
+                    thread_id=thread_id,
+                    role="agent",
+                    content=response_text,
+                )
+                session.add(agent_msg)
+                thread = await ChatThread.objects.by_id(thread_id).first(session)
+                if thread:
+                    thread.updated_at = utcnow()
+                    session.add(thread)
+                await session.commit()
+        except Exception as exc:
+            logger.warning("chat_thread.bg_exec.failed", error=str(exc))
+            err_msg = AgentMessage(
+                organization_id=org_id,
+                executive_agent_id=agent_id,
+                thread_id=thread_id,
+                role="system",
+                content=f"Could not reach {display_name}: {str(exc)[:200]}",
+            )
+            session.add(err_msg)
+            await session.commit()
+
+        # One-shot AI title — runs exactly once per thread, never retried
+        if needs_ai_title:
+            try:
+                ai_title = await _generate_ai_title(user_message, response_text)
+                if ai_title:
+                    thread = await ChatThread.objects.by_id(thread_id).first(session)
+                    if thread:
+                        thread.title = ai_title
+                        session.add(thread)
+                        await session.commit()
+            except Exception:
+                pass  # Keep fallback title
 
 
 @router.patch("/{thread_id}", response_model=ChatThreadRead)

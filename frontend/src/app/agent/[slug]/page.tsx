@@ -185,7 +185,6 @@ function ChatTab({ agent }: { agent: ExecutiveAgent }) {
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
 
   // Load threads
   useEffect(() => {
@@ -198,7 +197,14 @@ function ChatTab({ agent }: { agent: ExecutiveAgent }) {
   // Load messages when active thread changes
   useEffect(() => {
     if (!activeThreadId) return;
-    api.chatThreads.messages(activeThreadId).then(setMessages).catch(console.error);
+    api.chatThreads.messages(activeThreadId).then((msgs) => {
+      setMessages(msgs);
+      // Scroll to bottom on thread switch
+      requestAnimationFrame(() => {
+        scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
+      });
+    }).catch(console.error);
+    // Poll for new messages (agent responses) — but don't auto-scroll
     const iv = setInterval(() => {
       api.chatThreads.messages(activeThreadId).then(setMessages).catch(console.error);
     }, 8_000);
@@ -213,38 +219,43 @@ function ChatTab({ agent }: { agent: ExecutiveAgent }) {
     return () => clearInterval(iv);
   }, [agent.id]);
 
+  // Auto-resize textarea
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
-  }, [messages]);
-
-  const loadMessages = () => {
-    if (activeThreadId) {
-      api.chatThreads.messages(activeThreadId).then(setMessages).catch(console.error);
+    const el = textareaRef.current;
+    if (el) {
+      el.style.height = "auto";
+      el.style.height = Math.min(el.scrollHeight, 200) + "px";
     }
-  };
-
-  useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
-  }, [messages]);
+  }, [input]);
 
   const handleSend = async () => {
     const text = input.trim();
-    if (!text || sending || !activeThreadId) return;
+    if (!text || sending) return;
     setInput("");
     setSending(true);
     try {
-      const msg = await api.chatThreads.send(activeThreadId, text);
+      let threadId = activeThreadId;
+      // Auto-create thread if none exists
+      if (!threadId) {
+        const thread = await api.chatThreads.create(agent.id);
+        setThreads((prev) => [thread, ...prev]);
+        setActiveThreadId(thread.id);
+        threadId = thread.id;
+      }
+      const msg = await api.chatThreads.send(threadId, text);
       setMessages((prev) => [...prev, msg]);
-      // Refresh thread list to update titles/previews
       api.chatThreads.list(agent.id).then(setThreads).catch(console.error);
-      // Poll for agent response after a short delay
-      setTimeout(loadMessages, 2000);
+      // Scroll to bottom after sending
+      requestAnimationFrame(() => {
+        scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+      });
     } catch (e) {
       console.error(e);
       setInput(text);
     } finally {
       setSending(false);
-      inputRef.current?.focus();
+      textareaRef.current?.focus();
     }
   };
 
@@ -254,7 +265,7 @@ function ChatTab({ agent }: { agent: ExecutiveAgent }) {
       setThreads((prev) => [thread, ...prev]);
       setActiveThreadId(thread.id);
       setMessages([]);
-      inputRef.current?.focus();
+      textareaRef.current?.focus();
     } catch (e) { console.error(e); }
   };
 
@@ -337,23 +348,47 @@ function ChatTab({ agent }: { agent: ExecutiveAgent }) {
         </div>
         <div className="flex-1 overflow-y-auto px-2">
           {threads.map((t) => (
-            <button
+            <div
               key={t.id}
-              onClick={() => setActiveThreadId(t.id)}
               className={cn(
-                "w-full text-left rounded-lg px-3 py-2 mb-0.5 text-[12px] transition-fast",
+                "group flex items-center rounded-lg mb-0.5 transition-fast",
                 activeThreadId === t.id
                   ? "bg-[color:var(--surface-muted)]"
                   : "hover:bg-[color:var(--surface-muted)]",
               )}
             >
-              <p className="font-medium truncate" style={{ color: activeThreadId === t.id ? "var(--text)" : "var(--text-muted)" }}>
-                {t.title || "New session"}
-              </p>
-              <p className="text-[10px] mt-0.5 truncate" style={{ color: "var(--text-quiet)" }}>
-                {relTime(t.updated_at)}
-              </p>
-            </button>
+              <button
+                onClick={() => setActiveThreadId(t.id)}
+                className="flex-1 text-left px-3 py-2 text-[12px] min-w-0"
+              >
+                <p className="font-medium truncate" style={{ color: activeThreadId === t.id ? "var(--text)" : "var(--text-muted)" }}>
+                  {t.title || "New session"}
+                </p>
+                <p className="text-[10px] mt-0.5 truncate" style={{ color: "var(--text-quiet)" }}>
+                  {relTime(t.updated_at)}
+                </p>
+              </button>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (confirm("Delete this conversation?")) {
+                    api.chatThreads.update(t.id, { is_active: false }).then(() => {
+                      setThreads((prev) => prev.filter((x) => x.id !== t.id));
+                      if (activeThreadId === t.id) {
+                        const remaining = threads.filter((x) => x.id !== t.id);
+                        setActiveThreadId(remaining.length > 0 ? remaining[0].id : null);
+                        setMessages([]);
+                      }
+                    }).catch(console.error);
+                  }
+                }}
+                className="opacity-0 group-hover:opacity-100 shrink-0 p-1.5 mr-1 rounded transition-fast hover:bg-red-50 dark:hover:bg-red-950/20"
+                style={{ color: "var(--danger)" }}
+                title="Delete conversation"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </div>
           ))}
         </div>
       </div>
@@ -382,33 +417,24 @@ function ChatTab({ agent }: { agent: ExecutiveAgent }) {
         ) : (
           <>
             {messages.map((m) => (
-              <div key={m.id} className={cn(
-                "flex",
-                m.role === "user" ? "justify-end" : "justify-start",
-              )}>
+              <div key={m.id}>
                 {m.role === "system" ? (
-                  <div className="w-full rounded-lg p-3" style={{ background: "var(--surface-muted)" }}>
-                    <p className="text-xs whitespace-pre-wrap" style={{ color: "var(--text-muted)" }}>{m.content}</p>
+                  <div className="text-center py-1">
+                    <span className="text-[11px] italic" style={{ color: "var(--text-quiet)" }}>{m.content}</span>
+                  </div>
+                ) : m.role === "user" ? (
+                  /* User message — Claude Code style: shaded card, full width */
+                  <div className="rounded-xl px-4 py-3 text-[13px]" style={{ background: "var(--surface-muted)", color: "var(--text)" }}>
+                    <p className="whitespace-pre-wrap">{m.content}</p>
                   </div>
                 ) : (
-                  <div className="flex items-start gap-2 max-w-[85%]">
-                    {m.role === "agent" && (
-                      <span className="mt-1 text-lg shrink-0">{agent.avatar_emoji || "🤖"}</span>
-                    )}
-                    <div
-                      className={cn(
-                        "rounded-2xl px-4 py-2.5 text-sm",
-                        m.role === "user"
-                          ? "rounded-br-md bg-[color:var(--accent)] text-white"
-                          : "rounded-bl-md border",
-                      )}
-                      style={m.role !== "user" ? { borderColor: "var(--border)", background: "var(--surface)", color: "var(--text)" } : undefined}
-                    >
-                      <p className="whitespace-pre-wrap">{m.content}</p>
-                      <p className={cn("text-[10px] mt-1", m.role === "user" ? "text-white/60" : "")} style={m.role !== "user" ? { color: "var(--text-quiet)" } : undefined}>
-                        {m.role === "agent" && <span className="font-medium mr-1">{agent.display_name}</span>}
-                        {new Date(m.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                      </p>
+                  /* Agent response — clean text with markdown */
+                  <div className="px-1 py-2">
+                    <div className="flex items-start gap-2">
+                      <span className="mt-0.5 text-sm shrink-0">{agent.avatar_emoji || "🤖"}</span>
+                      <div className="prose prose-sm prose-slate dark:prose-invert max-w-none text-[13px]" style={{ color: "var(--text)" }}>
+                        <ReactMarkdown>{m.content}</ReactMarkdown>
+                      </div>
                     </div>
                   </div>
                 )}
@@ -416,14 +442,12 @@ function ChatTab({ agent }: { agent: ExecutiveAgent }) {
             ))}
             {/* Typing indicator */}
             {messages.length > 0 && messages[messages.length - 1].role === "user" && (
-              <div className="flex items-center gap-2">
-                <span className="text-lg">{agent.avatar_emoji || "🤖"}</span>
-                <div className="rounded-2xl rounded-bl-md border px-4 py-2.5" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
-                  <div className="flex gap-1">
-                    <span className="h-1.5 w-1.5 rounded-full bg-slate-400 animate-pulse" style={{ animationDelay: "0ms" }} />
-                    <span className="h-1.5 w-1.5 rounded-full bg-slate-400 animate-pulse" style={{ animationDelay: "200ms" }} />
-                    <span className="h-1.5 w-1.5 rounded-full bg-slate-400 animate-pulse" style={{ animationDelay: "400ms" }} />
-                  </div>
+              <div className="flex items-center gap-2 px-1 py-2">
+                <span className="text-sm">{agent.avatar_emoji || "🤖"}</span>
+                <div className="flex gap-1">
+                  <span className="h-1.5 w-1.5 rounded-full animate-pulse" style={{ background: "var(--text-quiet)", animationDelay: "0ms" }} />
+                  <span className="h-1.5 w-1.5 rounded-full animate-pulse" style={{ background: "var(--text-quiet)", animationDelay: "200ms" }} />
+                  <span className="h-1.5 w-1.5 rounded-full animate-pulse" style={{ background: "var(--text-quiet)", animationDelay: "400ms" }} />
                 </div>
               </div>
             )}
@@ -453,38 +477,39 @@ function ChatTab({ agent }: { agent: ExecutiveAgent }) {
           )}
 
           <div className="max-w-3xl mx-auto px-6 py-3">
-            <div className="flex items-center gap-2">
-              <input
-                ref={inputRef}
-                className="flex-1 rounded-xl border px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[color:var(--accent)]/20"
-                style={{ borderColor: "var(--border)", background: "var(--bg)", color: "var(--text)" }}
-                placeholder={`Message ${agent.display_name}...`}
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    if (showSlashMenu && filteredCmds.length > 0) {
-                      handleSlashCommand(filteredCmds[0].cmd);
-                    } else {
-                      handleSend();
+            <div className="flex items-end gap-2">
+              <div className="flex-1 rounded-xl border overflow-hidden" style={{ borderColor: "var(--border)", background: "var(--bg)" }}>
+                <textarea
+                  ref={textareaRef}
+                  className="w-full resize-none px-4 py-2.5 text-[13px] bg-transparent focus:outline-none"
+                  style={{ color: "var(--text)", maxHeight: "200px" }}
+                  rows={1}
+                  placeholder={`Message ${agent.display_name}...`}
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey) {
+                      e.preventDefault();
+                      if (showSlashMenu && filteredCmds.length > 0) {
+                        handleSlashCommand(filteredCmds[0].cmd);
+                      } else {
+                        handleSend();
+                      }
                     }
-                  }
-                }}
-                autoFocus
-              />
+                  }}
+                  autoFocus
+                />
+              </div>
               <button
                 onClick={handleSend}
-                disabled={!input.trim() || sending || !activeThreadId}
-                className="rounded-xl p-2.5 bg-[color:var(--accent)] text-white disabled:opacity-30 transition-fast"
-                title="Send"
+                disabled={!input.trim() || sending}
+                className="rounded-xl p-2.5 transition-fast disabled:opacity-20"
+                style={{ color: "var(--accent)" }}
+                title="Send (Enter)"
               >
                 <Send className="h-4 w-4" />
               </button>
             </div>
-            <p className="text-[10px] mt-1 text-center" style={{ color: "var(--text-quiet)" }}>
-              Press Enter to send · Type / for commands
-            </p>
           </div>
         </div>
       </div>

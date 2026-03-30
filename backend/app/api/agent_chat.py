@@ -190,7 +190,7 @@ async def _exec_via_bridge(openclaw_agent_id: str, message: str, session_id: str
     url = f"{settings.bridge_url.rstrip('/')}/chat"
     headers = {"X-Bridge-Token": settings.bridge_token}
     try:
-        async with httpx.AsyncClient(timeout=130.0) as client:
+        async with httpx.AsyncClient(timeout=310.0) as client:
             resp = await client.post(url, headers=headers, json={
                 "agent_id": openclaw_agent_id,
                 "message": message,
