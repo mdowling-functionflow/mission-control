@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 import json as json_lib
 import subprocess
+import time
+from collections import defaultdict
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, status
@@ -22,6 +24,24 @@ from app.services.organizations import OrganizationContext
 logger = get_logger(__name__)
 
 router = APIRouter(prefix="/agent-chat", tags=["agent-chat"])
+
+# Simple in-memory rate limiting: max 10 sends per minute per org
+_send_timestamps: dict[str, list[float]] = defaultdict(list)
+_SEND_LIMIT = 10
+_SEND_WINDOW = 60  # seconds
+
+
+def _check_send_rate(org_id: str) -> None:
+    now = time.time()
+    timestamps = _send_timestamps[org_id]
+    # Clean old entries
+    _send_timestamps[org_id] = [t for t in timestamps if now - t < _SEND_WINDOW]
+    if len(_send_timestamps[org_id]) >= _SEND_LIMIT:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=f"Rate limit: max {_SEND_LIMIT} messages per minute",
+        )
+    _send_timestamps[org_id].append(now)
 
 
 class ChatMessageRead(SQLModel):
@@ -73,6 +93,7 @@ async def send_message(
     ctx: OrganizationContext = ORG_MEMBER_DEP,
 ) -> ChatMessageRead:
     """Send a message to an agent via OpenClaw CLI and return the response."""
+    _check_send_rate(str(ctx.organization.id))
     exec_agent = await ExecutiveAgent.objects.filter_by(
         id=agent_id,
         organization_id=ctx.organization.id,

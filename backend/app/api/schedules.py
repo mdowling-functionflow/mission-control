@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 import httpx
 from fastapi import APIRouter, HTTPException, Query
 from sqlmodel import SQLModel
@@ -11,6 +13,15 @@ from app.core.config import settings
 from app.services.organizations import OrganizationContext
 
 router = APIRouter(prefix="/schedules", tags=["schedules"])
+
+# Security: validate job IDs are UUID-like (alphanumeric + hyphens only)
+_JOB_ID_PATTERN = re.compile(r"^[a-f0-9\-]{8,64}$")
+
+
+def _validate_job_id(job_id: str) -> str:
+    if not _JOB_ID_PATTERN.match(job_id):
+        raise HTTPException(status_code=400, detail="Invalid job ID format")
+    return job_id
 
 
 class ScheduleCreate(SQLModel):
@@ -91,6 +102,7 @@ async def edit_schedule(
     ctx: OrganizationContext = ORG_MEMBER_DEP,
 ) -> dict:
     """Edit an existing cron job."""
+    _validate_job_id(job_id)
     return await _bridge_request("POST", f"/cron/edit/{job_id}", body.model_dump(exclude_none=True))
 
 
@@ -100,6 +112,7 @@ async def remove_schedule(
     ctx: OrganizationContext = ORG_MEMBER_DEP,
 ) -> dict:
     """Remove a cron job."""
+    _validate_job_id(job_id)
     return await _bridge_request("DELETE", f"/cron/remove/{job_id}")
 
 
@@ -109,6 +122,7 @@ async def run_schedule(
     ctx: OrganizationContext = ORG_MEMBER_DEP,
 ) -> dict:
     """Run a cron job now."""
+    _validate_job_id(job_id)
     return await _bridge_request("POST", f"/cron/run/{job_id}")
 
 
@@ -118,6 +132,7 @@ async def enable_schedule(
     ctx: OrganizationContext = ORG_MEMBER_DEP,
 ) -> dict:
     """Enable a cron job."""
+    _validate_job_id(job_id)
     return await _bridge_request("POST", f"/cron/enable/{job_id}")
 
 
@@ -127,6 +142,7 @@ async def disable_schedule(
     ctx: OrganizationContext = ORG_MEMBER_DEP,
 ) -> dict:
     """Disable a cron job."""
+    _validate_job_id(job_id)
     return await _bridge_request("POST", f"/cron/disable/{job_id}")
 
 

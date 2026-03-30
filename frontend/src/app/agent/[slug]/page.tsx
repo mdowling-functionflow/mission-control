@@ -179,14 +179,14 @@ function ChatTab({ agent }: { agent: ExecutiveAgent }) {
   const [loading, setLoading] = useState(true);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
-  const [clearedAt, setClearedAt] = useState<string | null>(null);
+  const [clearedCount, setClearedCount] = useState(0); // messages to skip from start
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const loadMessages = () => {
     api.chat.messages(agent.id).then((all) => {
-      // Only show messages after the clear timestamp
-      const filtered = clearedAt ? all.filter((m) => m.created_at > clearedAt) : all;
+      // Skip the first N messages that were present when clear was clicked
+      const filtered = clearedCount > 0 ? all.slice(clearedCount) : all;
       setMessages(filtered);
     }).catch(console.error).finally(() => setLoading(false));
   };
@@ -195,7 +195,7 @@ function ChatTab({ agent }: { agent: ExecutiveAgent }) {
     loadMessages();
     const iv = setInterval(loadMessages, 8_000);
     return () => clearInterval(iv);
-  }, [agent.id, clearedAt]);
+  }, [agent.id, clearedCount]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
@@ -208,13 +208,11 @@ function ChatTab({ agent }: { agent: ExecutiveAgent }) {
     // Clear input immediately (before async)
     setInput("");
     setSending(true);
-    // Keep clearedAt — only shows messages after clear point
 
     try {
       const msg = await api.chat.send(agent.id, text);
       setMessages((prev) => [...prev, msg]);
-      // Refetch to pick up any system messages from dispatch
-      setTimeout(loadMessages, 1000);
+      // 8s poll will pick up agent response — no need to refetch immediately
     } catch (e) {
       console.error(e);
       // Restore input on failure
@@ -226,8 +224,13 @@ function ChatTab({ agent }: { agent: ExecutiveAgent }) {
   };
 
   const handleClear = () => {
-    setClearedAt(new Date().toISOString());
-    setMessages([]);
+    // Track how many messages to skip — all currently loaded messages from DB
+    api.chat.messages(agent.id).then((all) => {
+      setClearedCount(all.length);
+      setMessages([]);
+    }).catch(() => {
+      setMessages([]);
+    });
   };
 
   // Slash commands
@@ -286,7 +289,7 @@ function ChatTab({ agent }: { agent: ExecutiveAgent }) {
   };
 
   return (
-    <div className="flex flex-col" style={{ height: "calc(100vh - 320px)", minHeight: "400px" }}>
+    <div className="flex flex-col flex-1 min-h-0">
       {/* Messages — scrollable */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto space-y-3 pb-4">
         {loading ? <Spinner /> : messages.length === 0 ? (

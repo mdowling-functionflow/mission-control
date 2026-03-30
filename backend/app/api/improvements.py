@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import time
+from collections import defaultdict
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -29,6 +31,20 @@ from app.schemas.improvements import (
 from app.services.organizations import OrganizationContext
 
 router = APIRouter(prefix="/improvements", tags=["improvements"])
+
+# Rate limit audits: max 5 per hour per org
+_audit_timestamps: dict[str, list[float]] = defaultdict(list)
+_AUDIT_LIMIT = 5
+_AUDIT_WINDOW = 3600
+
+
+def _check_audit_rate(org_id: str) -> None:
+    now = time.time()
+    ts = _audit_timestamps[org_id]
+    _audit_timestamps[org_id] = [t for t in ts if now - t < _AUDIT_WINDOW]
+    if len(_audit_timestamps[org_id]) >= _AUDIT_LIMIT:
+        raise HTTPException(status_code=429, detail=f"Rate limit: max {_AUDIT_LIMIT} audits per hour")
+    _audit_timestamps[org_id].append(now)
 
 
 async def _resolve_agent_names(
@@ -127,6 +143,7 @@ async def run_weekly_audit(
     ctx: OrganizationContext = ORG_MEMBER_DEP,
 ) -> AuditResult:
     """Run a weekly audit for an agent — dispatches audit prompt, saves results as doc + improvements."""
+    _check_audit_rate(str(ctx.organization.id))
     exec_agent = await ExecutiveAgent.objects.filter_by(
         id=agent_id,
         organization_id=ctx.organization.id,

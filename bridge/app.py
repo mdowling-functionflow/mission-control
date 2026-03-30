@@ -28,7 +28,7 @@ app = FastAPI(title="Mission Control Local Bridge", version="0.1.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["http://localhost:3000", "http://localhost:8000"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
