@@ -295,6 +295,7 @@ def _get_dir_mtime(d: Path) -> str | None:
 class ChatRequest(BaseModel):
     agent_id: str  # openclaw agent id like "main", "sales"
     message: str
+    session_id: str | None = None  # optional thread-specific session
 
 
 class ChatResponse(BaseModel):
@@ -312,7 +313,7 @@ async def chat_with_agent(body: ChatRequest):
         "openclaw", "agent",
         "--agent", body.agent_id,
         "--message", body.message,
-        "--session-id", f"mc-{body.agent_id}",
+        "--session-id", body.session_id or f"mc-{body.agent_id}",
         "--json",
     ]
 

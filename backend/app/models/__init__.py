@@ -3,6 +3,7 @@
 from app.models.activity_events import ActivityEvent
 from app.models.agent_messages import AgentMessage
 from app.models.agent_skill_mappings import AgentSkillMapping
+from app.models.chat_threads import ChatThread
 from app.models.composed_tasks import ComposedTask
 from app.models.documents import Document
 from app.models.executive_agents import ExecutiveAgent
@@ -42,6 +43,7 @@ __all__ = [
     "ActivityEvent",
     "AgentMessage",
     "AgentSkillMapping",
+    "ChatThread",
     "ComposedTask",
     "Document",
     "ExecutiveAgent",

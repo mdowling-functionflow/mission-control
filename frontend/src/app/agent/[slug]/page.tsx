@@ -17,6 +17,7 @@ import {
   Lightbulb,
   ListTodo,
   MessageSquare,
+  Plus,
   Send,
   Users,
   X,
@@ -35,8 +36,10 @@ import {
   type AgentImprovement,
   type ComposedTask,
   type AgentFileInfo,
+  type ChatThreadItem,
   type CronJob,
   type InstalledSkill,
+  type ThreadMessage,
   type DocumentItem,
   type ChatMessage,
 } from "@/lib/executive-api";
@@ -175,27 +178,50 @@ export default function AgentWorkspacePage() {
 // ─── Tab Components ──────────────────────────────────────────────────
 
 function ChatTab({ agent }: { agent: ExecutiveAgent }) {
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [threads, setThreads] = useState<ChatThreadItem[]>([]);
+  const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
+  const [messages, setMessages] = useState<ThreadMessage[]>([]);
   const [loading, setLoading] = useState(true);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
-  const [clearedCount, setClearedCount] = useState(0); // messages to skip from start
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const loadMessages = () => {
-    api.chat.messages(agent.id).then((all) => {
-      // Skip the first N messages that were present when clear was clicked
-      const filtered = clearedCount > 0 ? all.slice(clearedCount) : all;
-      setMessages(filtered);
+  // Load threads
+  useEffect(() => {
+    api.chatThreads.list(agent.id).then((t) => {
+      setThreads(t);
+      if (t.length > 0) setActiveThreadId(t[0].id);
     }).catch(console.error).finally(() => setLoading(false));
-  };
+  }, [agent.id]);
+
+  // Load messages when active thread changes
+  useEffect(() => {
+    if (!activeThreadId) return;
+    api.chatThreads.messages(activeThreadId).then(setMessages).catch(console.error);
+    const iv = setInterval(() => {
+      api.chatThreads.messages(activeThreadId).then(setMessages).catch(console.error);
+    }, 8_000);
+    return () => clearInterval(iv);
+  }, [activeThreadId]);
+
+  // Refresh thread list periodically
+  useEffect(() => {
+    const iv = setInterval(() => {
+      api.chatThreads.list(agent.id).then(setThreads).catch(console.error);
+    }, 30_000);
+    return () => clearInterval(iv);
+  }, [agent.id]);
 
   useEffect(() => {
-    loadMessages();
-    const iv = setInterval(loadMessages, 8_000);
-    return () => clearInterval(iv);
-  }, [agent.id, clearedCount]);
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+  }, [messages]);
+
+  const loadMessages = () => {
+    if (activeThreadId) {
+      api.chatThreads.messages(activeThreadId).then(setMessages).catch(console.error);
+    }
+  };
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
@@ -203,19 +229,18 @@ function ChatTab({ agent }: { agent: ExecutiveAgent }) {
 
   const handleSend = async () => {
     const text = input.trim();
-    if (!text || sending) return;
-
-    // Clear input immediately (before async)
+    if (!text || sending || !activeThreadId) return;
     setInput("");
     setSending(true);
-
     try {
-      const msg = await api.chat.send(agent.id, text);
+      const msg = await api.chatThreads.send(activeThreadId, text);
       setMessages((prev) => [...prev, msg]);
-      // 8s poll will pick up agent response — no need to refetch immediately
+      // Refresh thread list to update titles/previews
+      api.chatThreads.list(agent.id).then(setThreads).catch(console.error);
+      // Poll for agent response after a short delay
+      setTimeout(loadMessages, 2000);
     } catch (e) {
       console.error(e);
-      // Restore input on failure
       setInput(text);
     } finally {
       setSending(false);
@@ -223,14 +248,14 @@ function ChatTab({ agent }: { agent: ExecutiveAgent }) {
     }
   };
 
-  const handleClear = () => {
-    // Track how many messages to skip — all currently loaded messages from DB
-    api.chat.messages(agent.id).then((all) => {
-      setClearedCount(all.length);
+  const handleNewChat = async () => {
+    try {
+      const thread = await api.chatThreads.create(agent.id);
+      setThreads((prev) => [thread, ...prev]);
+      setActiveThreadId(thread.id);
       setMessages([]);
-    }).catch(() => {
-      setMessages([]);
-    });
+      inputRef.current?.focus();
+    } catch (e) { console.error(e); }
   };
 
   // Slash commands
@@ -238,22 +263,22 @@ function ChatTab({ agent }: { agent: ExecutiveAgent }) {
     { cmd: "/help", desc: "Show available commands" },
     { cmd: "/status", desc: "Agent status" },
     { cmd: "/focus", desc: "Current focus" },
-    { cmd: "/clear", desc: "Clear chat" },
+    { cmd: "/new", desc: "New conversation" },
   ];
 
   const showSlashMenu = input.startsWith("/") && !input.includes(" ");
   const filteredCmds = SLASH_COMMANDS.filter((c) => c.cmd.startsWith(input));
 
   const handleSlashCommand = (cmd: string) => {
-    if (cmd === "/clear") {
-      handleClear();
+    if (cmd === "/new") {
+      handleNewChat();
       setInput("");
       return;
     }
     if (cmd === "/status") {
       setInput("");
       // Insert a synthetic agent status message
-      const statusMsg: ChatMessage = {
+      const statusMsg: ThreadMessage = {
         id: `status-${Date.now()}`,
         role: "agent",
         content: `**${agent.display_name}** (${agent.executive_role})\nStatus: ${agent.status}\nFocus: ${agent.current_focus || "Not set"}\nRisk: ${agent.current_risk || "None"}\nPending approvals: ${agent.pending_approvals_count}\nActive tasks: ${agent.active_tasks_count}`,
@@ -264,7 +289,7 @@ function ChatTab({ agent }: { agent: ExecutiveAgent }) {
     }
     if (cmd === "/focus") {
       setInput("");
-      const focusMsg: ChatMessage = {
+      const focusMsg: ThreadMessage = {
         id: `focus-${Date.now()}`,
         role: "agent",
         content: agent.current_focus || "No current focus set. You can set one from the Agent tab.",
@@ -275,7 +300,7 @@ function ChatTab({ agent }: { agent: ExecutiveAgent }) {
     }
     if (cmd === "/help") {
       setInput("");
-      const helpMsg: ChatMessage = {
+      const helpMsg: ThreadMessage = {
         id: `help-${Date.now()}`,
         role: "system",
         content: SLASH_COMMANDS.map((c) => `${c.cmd} — ${c.desc}`).join("\n"),
@@ -288,11 +313,59 @@ function ChatTab({ agent }: { agent: ExecutiveAgent }) {
     setInput(cmd + " ");
   };
 
+  // Relative time for thread list
+  const relTime = (iso: string) => {
+    const d = Date.now() - new Date(iso).getTime();
+    if (d < 60_000) return "now";
+    if (d < 3_600_000) return `${Math.floor(d / 60_000)}m`;
+    if (d < 86_400_000) return `${Math.floor(d / 3_600_000)}h`;
+    return `${Math.floor(d / 86_400_000)}d`;
+  };
+
   return (
-    <div className="flex flex-col flex-1 min-h-0">
-      {/* Messages — scrollable */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto space-y-3 pb-4">
-        {loading ? <Spinner /> : messages.length === 0 ? (
+    <div className="flex flex-1 min-h-0">
+      {/* Thread sidebar */}
+      <div className="w-[180px] shrink-0 border-r flex flex-col" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
+        <button
+          onClick={handleNewChat}
+          className="flex items-center gap-1.5 m-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-fast"
+          style={{ background: "var(--accent-soft)", color: "var(--accent)" }}
+        >
+          <Plus className="h-3 w-3" /> New Chat
+        </button>
+        <div className="flex-1 overflow-y-auto">
+          {threads.map((t) => (
+            <button
+              key={t.id}
+              onClick={() => setActiveThreadId(t.id)}
+              className={cn(
+                "w-full text-left px-3 py-2 text-[11px] border-l-2 transition-fast",
+                activeThreadId === t.id
+                  ? "border-[color:var(--accent)] bg-[color:var(--accent-muted)]"
+                  : "border-transparent hover:bg-[color:var(--surface-muted)]",
+              )}
+            >
+              <p className="font-medium truncate" style={{ color: activeThreadId === t.id ? "var(--accent)" : "var(--text)" }}>
+                {t.title || "New conversation"}
+              </p>
+              <p className="text-[10px] mt-0.5" style={{ color: "var(--text-quiet)" }}>
+                {t.message_count} msgs · {relTime(t.updated_at)}
+              </p>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Main chat area */}
+      <div className="flex-1 flex flex-col min-h-0">
+        {/* Messages */}
+        <div ref={scrollRef} className="flex-1 overflow-y-auto space-y-3 p-4 pb-2">
+          {loading ? <Spinner /> : !activeThreadId ? (
+            <div className="flex flex-col items-center justify-center h-full text-center">
+              <MessageSquare className="h-8 w-8 mb-2" style={{ color: "var(--text-quiet)" }} />
+              <p className="text-sm" style={{ color: "var(--text-muted)" }}>Click "New Chat" to start</p>
+            </div>
+          ) : messages.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-center">
             <MessageSquare className="h-8 w-8 mb-2" style={{ color: "var(--text-quiet)" }} />
             <p className="text-sm" style={{ color: "var(--text-muted)" }}>
@@ -391,23 +464,14 @@ function ChatTab({ agent }: { agent: ExecutiveAgent }) {
           }}
           autoFocus
         />
-        {messages.length > 0 && (
-          <button
-            onClick={handleClear}
-            className="rounded-xl p-2.5 transition-fast hover:bg-[color:var(--surface-muted)]"
-            style={{ color: "var(--text-quiet)" }}
-            title="Clear chat"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        )}
         <button
           onClick={handleSend}
-          disabled={!input.trim() || sending}
+          disabled={!input.trim() || sending || !activeThreadId}
           className="rounded-xl p-2.5 bg-[color:var(--accent)] text-white disabled:opacity-30 transition-fast"
         >
           <Send className="h-4 w-4" />
         </button>
+      </div>
       </div>
     </div>
   );

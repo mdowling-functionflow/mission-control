@@ -204,6 +204,27 @@ export interface ScheduleCreate {
   thinking?: string;
 }
 
+// ─── Chat Thread Types ───────────────────────────────────────────────
+
+export interface ChatThreadItem {
+  id: string;
+  executive_agent_id: string;
+  title: string | null;
+  session_id: string;
+  is_active: boolean;
+  message_count: number;
+  last_message_preview: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ThreadMessage {
+  id: string;
+  role: string;
+  content: string;
+  created_at: string;
+}
+
 // ─── Agent Files Types ───────────────────────────────────────────────
 
 export interface AgentFileInfo {
@@ -446,6 +467,28 @@ export const api = {
         `/api/v1/improvements/audit/${agentId}`,
         { method: "POST" },
       ),
+  },
+
+  chatThreads: {
+    list: (agentId: string) =>
+      execFetch<ChatThreadItem[]>(`/api/v1/chat-threads?agent_id=${agentId}`),
+    create: (agentId: string, title?: string) =>
+      execFetch<ChatThreadItem>("/api/v1/chat-threads", {
+        method: "POST",
+        body: JSON.stringify({ executive_agent_id: agentId, title }),
+      }),
+    messages: (threadId: string) =>
+      execFetch<ThreadMessage[]>(`/api/v1/chat-threads/${threadId}/messages`),
+    send: (threadId: string, content: string) =>
+      execFetch<ThreadMessage>(`/api/v1/chat-threads/${threadId}/send`, {
+        method: "POST",
+        body: JSON.stringify({ content }),
+      }),
+    update: (threadId: string, data: { title?: string; is_active?: boolean }) =>
+      execFetch<ChatThreadItem>(`/api/v1/chat-threads/${threadId}`, {
+        method: "PATCH",
+        body: JSON.stringify(data),
+      }),
   },
 
   schedules: {

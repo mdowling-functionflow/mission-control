@@ -176,17 +176,15 @@ async def receive_agent_message(
     )
 
 
-async def _exec_agent_cli(openclaw_agent_id: str, message: str) -> str | None:
+async def _exec_agent_cli(openclaw_agent_id: str, message: str, session_id: str | None = None) -> str | None:
     """Execute an agent turn. Routes through local bridge if BRIDGE_URL is set, else CLI."""
-    # Bridge mode: proxy to local bridge (for cloud/Vercel deployments)
+    effective_session = session_id or f"mc-{openclaw_agent_id}"
     if settings.bridge_url:
-        return await _exec_via_bridge(openclaw_agent_id, message)
-
-    # Local mode: use OpenClaw CLI directly
-    return await _exec_via_cli(openclaw_agent_id, message)
+        return await _exec_via_bridge(openclaw_agent_id, message, effective_session)
+    return await _exec_via_cli(openclaw_agent_id, message, effective_session)
 
 
-async def _exec_via_bridge(openclaw_agent_id: str, message: str) -> str | None:
+async def _exec_via_bridge(openclaw_agent_id: str, message: str, session_id: str | None = None) -> str | None:
     """Execute agent via the local bridge's /chat endpoint."""
     import httpx
     url = f"{settings.bridge_url.rstrip('/')}/chat"
@@ -196,6 +194,7 @@ async def _exec_via_bridge(openclaw_agent_id: str, message: str) -> str | None:
             resp = await client.post(url, headers=headers, json={
                 "agent_id": openclaw_agent_id,
                 "message": message,
+                "session_id": session_id,
             })
         if resp.status_code != 200:
             logger.warning("agent_chat.bridge.error", status=resp.status_code, body=resp.text[:200])
@@ -209,13 +208,13 @@ async def _exec_via_bridge(openclaw_agent_id: str, message: str) -> str | None:
         return f"Could not reach local bridge: {str(exc)[:200]}"
 
 
-async def _exec_via_cli(openclaw_agent_id: str, message: str) -> str | None:
+async def _exec_via_cli(openclaw_agent_id: str, message: str, session_id: str | None = None) -> str | None:
     """Execute agent via local OpenClaw CLI."""
     cmd = [
         "openclaw", "agent",
         "--agent", openclaw_agent_id,
         "--message", message,
-        "--session-id", f"mc-{openclaw_agent_id}",
+        "--session-id", session_id or f"mc-{openclaw_agent_id}",
         "--json",
     ]
 
