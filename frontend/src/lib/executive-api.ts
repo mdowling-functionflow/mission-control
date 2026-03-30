@@ -529,6 +529,10 @@ export const api = {
         body: JSON.stringify(data),
       }),
     discover: () => execFetch<DiscoveredFile[]>("/api/v1/documents/discover"),
+    batchImport: () =>
+      execFetch<{ imported: number; skipped: number; errors: string[] }>("/api/v1/documents/batch-import", {
+        method: "POST",
+      }),
     import: (data: { file_path: string; title?: string; doc_type?: string; source_agent_id?: string }) =>
       execFetch<DocumentItem>("/api/v1/documents/import", {
         method: "POST",

@@ -136,6 +136,75 @@ async def import_document_route(
     return await _resolve_agent(session, doc, ctx.organization.id)
 
 
+class BatchImportResult(SQLModel):
+    imported: int = 0
+    skipped: int = 0
+    errors: list[str] = []
+
+
+@router.post("/batch-import", response_model=BatchImportResult)
+async def batch_import_documents(
+    session: AsyncSession = SESSION_DEP,
+    ctx: OrganizationContext = ORG_MEMBER_DEP,
+) -> BatchImportResult:
+    """Discover all local files and import any not already in the DB."""
+    if not settings.bridge_url:
+        raise HTTPException(status_code=503, detail="Bridge not configured")
+
+    # Discover files
+    url = f"{settings.bridge_url.rstrip('/')}/documents/discover"
+    headers = {"X-Bridge-Token": settings.bridge_token}
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        resp = await client.get(url, headers=headers)
+    if resp.status_code >= 400:
+        raise HTTPException(status_code=502, detail="Discovery failed")
+
+    discovered = resp.json()
+
+    # Get existing file paths to deduplicate
+    existing_stmt = select(Document.file_path).where(
+        col(Document.organization_id) == ctx.organization.id,
+        col(Document.file_path).isnot(None),
+    )
+    result = await session.exec(existing_stmt)
+    existing_paths = set(result.all())
+
+    imported = 0
+    skipped = 0
+    errors: list[str] = []
+
+    for f in discovered:
+        fpath = f.get("path", "")
+        if fpath in existing_paths:
+            skipped += 1
+            continue
+
+        mime = f.get("mime_type", "application/octet-stream")
+        doc_type = "markdown"
+        if "pdf" in mime: doc_type = "pdf"
+        elif "presentation" in mime or "pptx" in mime: doc_type = "slide"
+        elif "word" in mime or "docx" in mime: doc_type = "report"
+        elif "spreadsheet" in mime or "xlsx" in mime: doc_type = "report"
+
+        try:
+            doc = Document(
+                organization_id=ctx.organization.id,
+                title=f.get("name", Path(fpath).stem),
+                doc_type=doc_type,
+                file_path=fpath,
+                mime_type=mime,
+                file_size=f.get("size"),
+                status="published",
+            )
+            session.add(doc)
+            imported += 1
+        except Exception as exc:
+            errors.append(f"{fpath}: {str(exc)[:100]}")
+
+    await session.commit()
+    return BatchImportResult(imported=imported, skipped=skipped, errors=errors)
+
+
 @router.get("/{doc_id}", response_model=DocumentRead)
 async def get_document(
     doc_id: UUID,

@@ -517,6 +517,16 @@ function AgentTab({ agent, slug }: { agent: ExecutiveAgent; slug: string }) {
       {/* Editor */}
       {selectedFile && (
         <div className="rounded-lg border overflow-hidden" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
+          {/* Trust indicator */}
+          <div className="flex items-center gap-2 px-3 py-1 text-[10px] border-b" style={{ borderColor: "var(--border)", color: "var(--text-quiet)", background: "var(--surface-muted)" }}>
+            <span>Source: ~/.openclaw/{slug === "main" ? "workspace" : `workspace-${slug}`}/{selectedFile}</span>
+            <span className="rounded bg-emerald-100 dark:bg-emerald-900/30 px-1 py-0.5 text-[9px] font-medium text-emerald-700 dark:text-emerald-400">
+              Live file
+            </span>
+            {files.find((f) => f.name === selectedFile)?.last_modified && (
+              <span>Modified: {new Date(files.find((f) => f.name === selectedFile)!.last_modified!).toLocaleString()}</span>
+            )}
+          </div>
           {/* Toolbar */}
           <div className="flex items-center justify-between border-b px-3 py-1.5" style={{ borderColor: "var(--border)" }}>
             <div className="flex items-center gap-2">

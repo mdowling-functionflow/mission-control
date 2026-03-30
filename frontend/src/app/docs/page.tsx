@@ -41,6 +41,20 @@ export default function DocsPage() {
     finally { setImporting(false); }
   };
 
+  const [batchImporting, setBatchImporting] = useState(false);
+  const [batchResult, setBatchResult] = useState<{ imported: number; skipped: number } | null>(null);
+
+  const handleBatchImport = async () => {
+    setBatchImporting(true);
+    try {
+      const result = await api.documents.batchImport();
+      setBatchResult(result);
+      // Reload docs
+      api.documents.list().then(setDocs).catch(console.error);
+    } catch (e) { console.error(e); }
+    finally { setBatchImporting(false); }
+  };
+
   useEffect(() => {
     Promise.all([api.documents.list(), api.agents.list()])
       .then(([d, a]) => { setDocs(d); setAgents(a); })
@@ -70,12 +84,25 @@ export default function DocsPage() {
       headerActions={
         <div className="flex items-center gap-2">
           <button
+            onClick={handleBatchImport}
+            disabled={batchImporting}
+            className="flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-fast disabled:opacity-40"
+            style={{ borderColor: "var(--border)", color: "var(--text-muted)" }}
+          >
+            {batchImporting ? (
+              <div className="h-3.5 w-3.5 animate-spin rounded-full border border-slate-300 border-t-slate-900" />
+            ) : (
+              <Download className="h-3.5 w-3.5" />
+            )}
+            {batchImporting ? "Importing..." : "Import All"}
+          </button>
+          <button
             onClick={handleDiscover}
             className="flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-fast"
             style={{ borderColor: "var(--border)", color: "var(--text-muted)" }}
           >
             <Download className="h-3.5 w-3.5" />
-            Import
+            Pick
           </button>
           <button
             onClick={() => setShowCreate(!showCreate)}
@@ -93,6 +120,14 @@ export default function DocsPage() {
       <SignedIn>
         <div className="mx-auto max-w-4xl space-y-6">
           {/* Create form */}
+          {/* Batch import result */}
+          {batchResult && (
+            <div className="rounded-xl border p-3 flex items-center gap-3" style={{ borderColor: "var(--border)", background: "var(--success-soft)" }}>
+              <span className="text-sm" style={{ color: "var(--success)" }}>Imported {batchResult.imported} files, skipped {batchResult.skipped} (already imported)</span>
+              <button onClick={() => setBatchResult(null)} className="ml-auto" style={{ color: "var(--text-quiet)" }}><X className="h-4 w-4" /></button>
+            </div>
+          )}
+
           {showCreate && <CreateDocForm agents={agents} onSubmit={handleCreate} />}
 
           {/* Import panel */}

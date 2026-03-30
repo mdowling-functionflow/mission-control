@@ -4,7 +4,10 @@ export const dynamic = "force-dynamic";
 
 import { useEffect, useState } from "react";
 import {
+  ChevronDown,
+  ChevronRight,
   Clock,
+  FileText,
   Pause,
   Play,
   Plus,
@@ -131,71 +134,16 @@ export default function SchedulesPage() {
             </div>
           ) : (
             <div className="space-y-2">
-              {jobs.map((job) => {
-                const agent = job.agentId ? agentMap.get(job.agentId) : null;
-                return (
-                  <div
-                    key={job.id}
-                    className="rounded-xl border p-4"
-                    style={{ borderColor: "var(--border)", background: "var(--surface)", opacity: job.enabled ? 1 : 0.6 }}
-                  >
-                    <div className="flex items-start gap-3">
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          {agent && <span className="text-sm">{agent.avatar_emoji}</span>}
-                          <h3 className="text-sm font-semibold" style={{ color: "var(--text)" }}>{job.name}</h3>
-                          {!job.enabled && (
-                            <span className="rounded px-1.5 py-0.5 text-[10px] font-medium" style={{ background: "var(--surface-muted)", color: "var(--text-quiet)" }}>
-                              Disabled
-                            </span>
-                          )}
-                        </div>
-                        {job.description && <p className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>{job.description}</p>}
-                        <div className="mt-1.5 flex items-center gap-3 flex-wrap text-[11px]" style={{ color: "var(--text-quiet)" }}>
-                          <span className="flex items-center gap-1">
-                            <Clock className="h-3 w-3" />
-                            {humanCron(job)}
-                          </span>
-                          {agent && <span>{agent.display_name}</span>}
-                          {job.payload?.message && (
-                            <span className="truncate max-w-[300px]" title={job.payload.message}>
-                              {job.payload.message.slice(0, 60)}...
-                            </span>
-                          )}
-                          <span>Updated {timeAgo(job.updatedAtMs)}</span>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-1 shrink-0">
-                        <button
-                          onClick={() => handleToggle(job)}
-                          className="rounded p-1.5 transition-fast hover:bg-[color:var(--surface-muted)]"
-                          style={{ color: "var(--text-muted)" }}
-                          title={job.enabled ? "Disable" : "Enable"}
-                        >
-                          {job.enabled ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
-                        </button>
-                        <button
-                          onClick={() => handleRun(job)}
-                          className="rounded p-1.5 transition-fast hover:bg-[color:var(--surface-muted)]"
-                          style={{ color: "var(--accent)" }}
-                          title="Run now"
-                        >
-                          <Zap className="h-3.5 w-3.5" />
-                        </button>
-                        <button
-                          onClick={() => handleRemove(job)}
-                          className="rounded p-1.5 transition-fast hover:bg-red-50 dark:hover:bg-red-950/20"
-                          style={{ color: "var(--danger)" }}
-                          title="Remove"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
+              {jobs.map((job) => (
+                <JobCard
+                  key={job.id}
+                  job={job}
+                  agent={job.agentId ? agentMap.get(job.agentId) : undefined}
+                  onToggle={() => handleToggle(job)}
+                  onRun={() => handleRun(job)}
+                  onRemove={() => handleRemove(job)}
+                />
+              ))}
             </div>
           )}
         </div>
@@ -271,6 +219,119 @@ function CreateForm({ agents, onSubmit }: {
       >
         Create
       </button>
+
+      {/* Templates */}
+      <div className="border-t pt-3 mt-3" style={{ borderColor: "var(--border)" }}>
+        <p className="text-[10px] font-semibold uppercase tracking-widest mb-2" style={{ color: "var(--text-quiet)" }}>Templates</p>
+        <div className="flex flex-wrap gap-1.5">
+          {TEMPLATES.map((t) => (
+            <button
+              key={t.name}
+              onClick={() => { setName(t.name); setCronExpr(t.cron); setMessage(t.message); setDescription(t.description || ""); }}
+              className="rounded-lg border px-2 py-1 text-[10px] transition-fast hover:bg-[color:var(--surface-muted)]"
+              style={{ borderColor: "var(--border)", color: "var(--text-muted)" }}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const TEMPLATES = [
+  { label: "Morning Digest", name: "morning-digest", cron: "0 8 * * 1-5", message: "Summarize what matters today: key meetings, pending approvals, urgent follow-ups, and overnight changes.", description: "Daily morning briefing on weekdays" },
+  { label: "Inbox Summary", name: "inbox-summary", cron: "0 8-18/2 * * 1-5", message: "Scan recent emails and summarize any that need attention. Flag urgent items.", description: "Email summary every 2 hours during working hours" },
+  { label: "Weekly Audit", name: "weekly-audit", cron: "0 9 * * 1", message: "Review this past week: tasks completed, documents produced, risks identified, friction points, and suggest 2-3 improvements for next week.", description: "Monday morning weekly self-audit" },
+  { label: "Weekly Research", name: "weekly-research", cron: "0 16 * * 5", message: "Produce a weekly research summary covering market trends, competitor moves, and relevant industry news.", description: "Friday afternoon research roundup" },
+  { label: "Reminder", name: "reminder", cron: "0 9 * * 1", message: "Remind Michael about: [describe what to remind about]", description: "Weekly reminder" },
+];
+
+
+function JobCard({ job, agent, onToggle, onRun, onRemove }: {
+  job: CronJob;
+  agent?: ExecutiveAgent;
+  onToggle: () => void;
+  onRun: () => void;
+  onRemove: () => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+
+  return (
+    <div
+      className="rounded-xl border overflow-hidden"
+      style={{ borderColor: "var(--border)", background: "var(--surface)", opacity: job.enabled ? 1 : 0.6 }}
+    >
+      {/* Header row */}
+      <div className="flex items-start gap-3 p-4">
+        <button onClick={() => setExpanded(!expanded)} className="mt-0.5 shrink-0" style={{ color: "var(--text-quiet)" }}>
+          {expanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+        </button>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2 flex-wrap">
+            {agent && <span className="text-sm">{agent.avatar_emoji}</span>}
+            <h3 className="text-sm font-semibold" style={{ color: "var(--text)" }}>{job.name}</h3>
+            {!job.enabled && (
+              <span className="rounded px-1.5 py-0.5 text-[10px] font-medium" style={{ background: "var(--surface-muted)", color: "var(--text-quiet)" }}>Disabled</span>
+            )}
+          </div>
+          {job.description && <p className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>{job.description}</p>}
+          <div className="mt-1.5 flex items-center gap-3 flex-wrap text-[11px]" style={{ color: "var(--text-quiet)" }}>
+            <span className="flex items-center gap-1"><Clock className="h-3 w-3" />{humanCron(job)}</span>
+            {agent && <span>{agent.display_name}</span>}
+            <span>Updated {timeAgo(job.updatedAtMs)}</span>
+          </div>
+        </div>
+        <div className="flex items-center gap-1 shrink-0">
+          <button onClick={onToggle} className="rounded p-1.5 transition-fast hover:bg-[color:var(--surface-muted)]" style={{ color: "var(--text-muted)" }} title={job.enabled ? "Disable" : "Enable"}>
+            {job.enabled ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
+          </button>
+          <button onClick={onRun} className="rounded p-1.5 transition-fast hover:bg-[color:var(--surface-muted)]" style={{ color: "var(--accent)" }} title="Run now">
+            <Zap className="h-3.5 w-3.5" />
+          </button>
+          <button onClick={onRemove} className="rounded p-1.5 transition-fast hover:bg-red-50 dark:hover:bg-red-950/20" style={{ color: "var(--danger)" }} title="Remove">
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      </div>
+
+      {/* Expanded detail panel */}
+      {expanded && (
+        <div className="border-t px-4 py-3 space-y-2 text-xs" style={{ borderColor: "var(--border)", background: "var(--surface-muted)" }}>
+          <div className="grid grid-cols-2 gap-x-6 gap-y-1.5">
+            <Detail label="Job ID" value={job.id} />
+            <Detail label="Agent" value={job.agentId || "default"} />
+            <Detail label="Schedule" value={job.schedule?.expr || job.schedule?.every || "—"} />
+            <Detail label="Timezone" value={job.schedule?.tz || "UTC"} />
+            <Detail label="Model" value={job.payload?.model || "default"} />
+            <Detail label="Timeout" value={job.payload?.timeoutSeconds ? `${job.payload.timeoutSeconds}s` : "default"} />
+            <Detail label="Thinking" value={job.payload?.thinking || "default"} />
+            <Detail label="Delivery" value={job.delivery?.mode || "none"} />
+            {job.delivery?.channel && <Detail label="Channel" value={job.delivery.channel} />}
+          </div>
+          {job.payload?.message && (
+            <div className="mt-2">
+              <p className="text-[10px] font-semibold uppercase tracking-widest mb-1" style={{ color: "var(--text-quiet)" }}>Message / Prompt</p>
+              <pre className="text-[11px] whitespace-pre-wrap rounded-lg p-2 max-h-[200px] overflow-auto" style={{ background: "var(--surface)", color: "var(--text-muted)", border: "1px solid var(--border)" }}>
+                {job.payload.message}
+              </pre>
+            </div>
+          )}
+          <p className="text-[10px]" style={{ color: "var(--text-quiet)" }}>
+            Created: {new Date(job.createdAtMs).toLocaleString()}
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Detail({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <span className="text-[10px] font-medium" style={{ color: "var(--text-quiet)" }}>{label}: </span>
+      <span className="text-[11px] font-mono" style={{ color: "var(--text-muted)" }}>{value}</span>
     </div>
   );
 }
