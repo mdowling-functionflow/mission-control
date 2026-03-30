@@ -35,6 +35,9 @@ export interface ExecutiveAgent {
   executive_role: string;
   role_description: string | null;
   avatar_emoji: string | null;
+  agent_type: string; // "primary" | "helper"
+  parent_agent_id: string | null;
+  sidebar_visible: boolean;
   status: string;
   current_focus: string | null;
   last_seen_at: string | null;
@@ -377,6 +380,13 @@ export const api = {
     list: () => execFetch<ExecutiveAgent[]>("/api/v1/executive-agents"),
     get: (id: string) => execFetch<ExecutiveAgent>(`/api/v1/executive-agents/${id}`),
     seed: () => execFetch<ExecutiveAgent[]>("/api/v1/executive-agents/seed", { method: "POST" }),
+    create: (data: {
+      display_name: string; openclaw_agent_id: string; executive_role: string;
+      role_description?: string; avatar_emoji?: string;
+      agent_type?: string; parent_agent_id?: string;
+    }) => execFetch<ExecutiveAgent>("/api/v1/executive-agents/create", {
+      method: "POST", body: JSON.stringify(data),
+    }),
     refreshAll: () =>
       execFetch<ExecutiveAgent[]>("/api/v1/executive-agents/refresh-all", { method: "POST" }),
     update: (id: string, data: Partial<ExecutiveAgent>) =>

@@ -351,6 +351,53 @@ async def chat_with_agent(body: ChatRequest):
 
 
 # ---------------------------------------------------------------------------
+# Agent Creation — create new OpenClaw agents via CLI
+# ---------------------------------------------------------------------------
+
+class AgentCreateRequest(BaseModel):
+    agent_id: str  # slug like "research-assistant"
+    workspace: str | None = None  # optional custom workspace path
+
+
+class AgentCreateResponse(BaseModel):
+    success: bool
+    agent_id: str
+    workspace: str | None = None
+    error: str | None = None
+
+
+@app.post("/agents/create", response_model=AgentCreateResponse, dependencies=[Depends(verify_token)])
+async def create_agent(body: AgentCreateRequest):
+    """Create a new OpenClaw agent via CLI."""
+    workspace = body.workspace or str(Path(OPENCLAW_DIR) / f"workspace-{body.agent_id}")
+
+    cmd = [
+        "openclaw", "agents", "add", body.agent_id,
+        "--workspace", workspace,
+        "--non-interactive",
+        "--json",
+    ]
+
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=30)
+    except asyncio.TimeoutError:
+        return AgentCreateResponse(success=False, agent_id=body.agent_id, error="Timed out")
+    except FileNotFoundError:
+        return AgentCreateResponse(success=False, agent_id=body.agent_id, error="openclaw CLI not found")
+
+    if proc.returncode != 0:
+        err = stderr.decode("utf-8", errors="replace").strip()
+        return AgentCreateResponse(success=False, agent_id=body.agent_id, error=err[:500])
+
+    return AgentCreateResponse(success=True, agent_id=body.agent_id, workspace=workspace)
+
+
+# ---------------------------------------------------------------------------
 # Cron / Schedules — manage OpenClaw cron jobs via CLI
 # ---------------------------------------------------------------------------
 

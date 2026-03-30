@@ -18,6 +18,18 @@ class ExecutiveAgentBind(SQLModel):
     avatar_emoji: str | None = None
 
 
+class ExecutiveAgentCreate(SQLModel):
+    """Create a new agent (syncs to OpenClaw)."""
+
+    display_name: str
+    openclaw_agent_id: str  # slug like "research-assistant"
+    executive_role: str
+    role_description: str | None = None
+    avatar_emoji: str | None = None
+    agent_type: str = "primary"  # primary / helper
+    parent_agent_id: UUID | None = None  # required if helper
+
+
 class ExecutiveAgentUpdate(SQLModel):
     """Partial update for an executive agent."""
 
@@ -28,6 +40,9 @@ class ExecutiveAgentUpdate(SQLModel):
     current_focus: str | None = None
     current_risk: str | None = None
     status: str | None = None
+    agent_type: str | None = None
+    parent_agent_id: UUID | None = None
+    sidebar_visible: bool | None = None
 
 
 class ExecutiveAgentRead(SQLModel):
@@ -41,6 +56,9 @@ class ExecutiveAgentRead(SQLModel):
     executive_role: str
     role_description: str | None = None
     avatar_emoji: str | None = None
+    agent_type: str = "primary"
+    parent_agent_id: UUID | None = None
+    sidebar_visible: bool = True
     status: str
     current_focus: str | None = None
     last_seen_at: datetime | None = None

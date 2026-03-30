@@ -28,6 +28,11 @@ class ExecutiveAgent(QueryModel, table=True):
     role_description: str | None = Field(default=None, sa_column=Column(Text))
     avatar_emoji: str | None = Field(default=None)
 
+    # Agent hierarchy
+    agent_type: str = Field(default="primary", index=True)  # primary / helper
+    parent_agent_id: UUID | None = Field(default=None, foreign_key="executive_agents.id", index=True)
+    sidebar_visible: bool = Field(default=True)
+
     # Runtime state
     status: str = Field(default="bound", index=True)  # bound / active / stale / error
     current_focus: str | None = Field(default=None, sa_column=Column(Text))

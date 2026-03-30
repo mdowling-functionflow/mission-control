@@ -51,7 +51,7 @@ export function DashboardSidebar() {
           Workspaces
         </p>
         <nav className="space-y-0.5">
-          {agents.length > 0 ? agents.map((agent) => (
+          {agents.length > 0 ? agents.filter((a) => a.sidebar_visible !== false).map((agent) => (
             <NavItem
               key={agent.id}
               href={`/agent/${agent.openclaw_agent_id}`}

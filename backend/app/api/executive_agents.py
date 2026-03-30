@@ -23,6 +23,7 @@ from app.models.improvements import Improvement
 from app.schemas.executive_agents import (
     DiscoveredAgent,
     ExecutiveAgentBind,
+    ExecutiveAgentCreate,
     ExecutiveAgentRead,
     ExecutiveAgentUpdate,
 )
@@ -38,13 +39,21 @@ router = APIRouter(prefix="/executive-agents", tags=["executive-agents"])
 
 @router.get("", response_model=list[ExecutiveAgentRead])
 async def list_executive_agents(
+    sidebar_visible: bool | None = Query(default=None),
+    agent_type: str | None = Query(default=None),
+    parent_agent_id: UUID | None = Query(default=None),
     session: AsyncSession = SESSION_DEP,
     ctx: OrganizationContext = ORG_MEMBER_DEP,
 ) -> list[ExecutiveAgent]:
-    """List all bound executive agents for the current organization."""
-    return await ExecutiveAgent.objects.filter_by(
-        organization_id=ctx.organization.id,
-    ).all(session)
+    """List executive agents with optional filters."""
+    qs = ExecutiveAgent.objects.filter_by(organization_id=ctx.organization.id)
+    if sidebar_visible is not None:
+        qs = qs.filter(col(ExecutiveAgent.sidebar_visible) == sidebar_visible)
+    if agent_type is not None:
+        qs = qs.filter(col(ExecutiveAgent.agent_type) == agent_type)
+    if parent_agent_id is not None:
+        qs = qs.filter(col(ExecutiveAgent.parent_agent_id) == parent_agent_id)
+    return await qs.all(session)
 
 
 @router.post("/bind", response_model=ExecutiveAgentRead, status_code=status.HTTP_201_CREATED)
@@ -177,6 +186,66 @@ async def seed_executive_team(
     for a in created:
         await session.refresh(a)
     return created
+
+
+@router.post("/create", response_model=ExecutiveAgentRead, status_code=status.HTTP_201_CREATED)
+async def create_executive_agent(
+    body: ExecutiveAgentCreate,
+    session: AsyncSession = SESSION_DEP,
+    ctx: OrganizationContext = Depends(require_org_admin),
+) -> ExecutiveAgent:
+    """Create a new agent — syncs to OpenClaw via bridge, then creates DB record."""
+    # Check slug uniqueness
+    existing = await ExecutiveAgent.objects.filter_by(
+        organization_id=ctx.organization.id,
+        openclaw_agent_id=body.openclaw_agent_id,
+    ).first(session)
+    if existing:
+        raise HTTPException(status_code=409, detail=f"Agent '{body.openclaw_agent_id}' already exists")
+
+    # Validate helper has parent
+    if body.agent_type == "helper" and not body.parent_agent_id:
+        raise HTTPException(status_code=400, detail="Helper agents must have a parent_agent_id")
+
+    # Create in OpenClaw via bridge
+    if settings.bridge_url:
+        import httpx
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                resp = await client.post(
+                    f"{settings.bridge_url.rstrip('/')}/agents/create",
+                    headers={"X-Bridge-Token": settings.bridge_token},
+                    json={"agent_id": body.openclaw_agent_id},
+                )
+            if resp.status_code == 200:
+                data = resp.json()
+                if not data.get("success"):
+                    raise HTTPException(status_code=502, detail=f"OpenClaw agent creation failed: {data.get('error', 'unknown')}")
+                workspace = data.get("workspace")
+            else:
+                raise HTTPException(status_code=502, detail=f"Bridge error: {resp.text[:200]}")
+        except httpx.HTTPError as exc:
+            raise HTTPException(status_code=502, detail=f"Bridge unreachable: {str(exc)[:200]}")
+    else:
+        workspace = _find_agent_workspace(body.openclaw_agent_id)
+
+    agent = ExecutiveAgent(
+        organization_id=ctx.organization.id,
+        openclaw_agent_id=body.openclaw_agent_id,
+        openclaw_workspace=workspace,
+        display_name=body.display_name,
+        executive_role=body.executive_role,
+        role_description=body.role_description,
+        avatar_emoji=body.avatar_emoji,
+        agent_type=body.agent_type,
+        parent_agent_id=body.parent_agent_id,
+        sidebar_visible=(body.agent_type == "primary"),
+        status="bound",
+    )
+    session.add(agent)
+    await session.commit()
+    await session.refresh(agent)
+    return agent
 
 
 @router.get("/{agent_id}", response_model=ExecutiveAgentRead)
