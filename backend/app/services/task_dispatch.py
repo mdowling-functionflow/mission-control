@@ -108,6 +108,7 @@ async def _exec_via_local_cli(openclaw_agent_id: str, message: str) -> str | Non
         "openclaw", "agent",
         "--agent", openclaw_agent_id,
         "--message", message,
+        "--session", "isolated",
         "--json",
     ]
 

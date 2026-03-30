@@ -312,6 +312,7 @@ async def chat_with_agent(body: ChatRequest):
         "openclaw", "agent",
         "--agent", body.agent_id,
         "--message", body.message,
+        "--session", "isolated",
         "--json",
     ]
 
