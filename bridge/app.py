@@ -532,9 +532,70 @@ async def cron_runs(job_id: str | None = None, limit: int = 50):
         return {"raw": output}
 
 
-# Need json import for cron commands
+# Need json/asyncio imports for cron and document commands
 import json as json_lib
 import asyncio
+import mimetypes
+
+
+# ---------------------------------------------------------------------------
+# Documents — discover and serve local files
+# ---------------------------------------------------------------------------
+
+DISCOVER_DIRS = [
+    Path.home() / "Documents" / "OpenClaw",
+]
+DISCOVER_EXTENSIONS = {".pdf", ".docx", ".pptx", ".xlsx", ".md", ".txt", ".csv"}
+
+
+class DiscoveredFileInfo(BaseModel):
+    path: str
+    name: str
+    mime_type: str
+    size: int
+    last_modified: str | None = None
+
+
+@app.get("/documents/discover", response_model=list[DiscoveredFileInfo], dependencies=[Depends(verify_token)])
+async def discover_documents():
+    """Scan known directories for importable document files."""
+    results: list[DiscoveredFileInfo] = []
+    for d in DISCOVER_DIRS:
+        if not d.is_dir():
+            continue
+        for entry in sorted(d.rglob("*")):
+            if not entry.is_file():
+                continue
+            if entry.suffix.lower() not in DISCOVER_EXTENSIONS:
+                continue
+            if any(part.startswith(".") or part == "node_modules" for part in entry.parts):
+                continue
+            mime = mimetypes.guess_type(str(entry))[0] or "application/octet-stream"
+            mtime = datetime.fromtimestamp(entry.stat().st_mtime, tz=UTC).replace(tzinfo=None).isoformat()
+            results.append(DiscoveredFileInfo(
+                path=str(entry),
+                name=entry.name,
+                mime_type=mime,
+                size=entry.stat().st_size,
+                last_modified=mtime,
+            ))
+    return results
+
+
+@app.get("/documents/serve", dependencies=[Depends(verify_token)])
+async def serve_document(path: str):
+    """Serve a local file by path."""
+    from fastapi.responses import FileResponse
+    fpath = Path(path)
+    if not fpath.is_file():
+        raise HTTPException(status_code=404, detail="File not found")
+    # Security: must be within home directory
+    try:
+        fpath.resolve().relative_to(Path.home().resolve())
+    except ValueError:
+        raise HTTPException(status_code=403, detail="Path outside home directory")
+    mime = mimetypes.guess_type(str(fpath))[0] or "application/octet-stream"
+    return FileResponse(str(fpath), media_type=mime, filename=fpath.name)
 
 
 # ---------------------------------------------------------------------------

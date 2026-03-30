@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import Column, Text
+from sqlalchemy import BigInteger, Column, Text
 from sqlmodel import Field
 
 from app.core.time import utcnow
@@ -26,6 +26,11 @@ class Document(QueryModel, table=True):
     source_agent_id: UUID | None = Field(
         default=None, foreign_key="executive_agents.id", index=True
     )
+
+    # File-backed document fields
+    file_path: str | None = Field(default=None, sa_column=Column(Text))
+    mime_type: str | None = Field(default=None)
+    file_size: int | None = Field(default=None, sa_column=Column(BigInteger))
 
     status: str = Field(default="draft", index=True)
     # draft / published / archived

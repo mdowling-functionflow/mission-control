@@ -281,9 +281,20 @@ export interface DocumentItem {
   source_agent_id: string | null;
   agent_display_name: string | null;
   agent_avatar_emoji: string | null;
+  file_path: string | null;
+  mime_type: string | null;
+  file_size: number | null;
   status: string;
   created_at: string;
   updated_at: string;
+}
+
+export interface DiscoveredFile {
+  path: string;
+  name: string;
+  mime_type: string;
+  size: number;
+  last_modified: string | null;
 }
 
 // ─── Task Composer Types ─────────────────────────────────────────────
@@ -512,6 +523,13 @@ export const api = {
         method: "PATCH",
         body: JSON.stringify(data),
       }),
+    discover: () => execFetch<DiscoveredFile[]>("/api/v1/documents/discover"),
+    import: (data: { file_path: string; title?: string; doc_type?: string; source_agent_id?: string }) =>
+      execFetch<DocumentItem>("/api/v1/documents/import", {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+    downloadUrl: (id: string) => `${getApiBaseUrl()}/api/v1/documents/${id}/download`,
   },
 
   skills: {

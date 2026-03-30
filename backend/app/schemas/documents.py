@@ -13,6 +13,9 @@ class DocumentCreate(SQLModel):
     content: str | None = None
     doc_type: str = "markdown"
     source_agent_id: UUID | None = None
+    file_path: str | None = None
+    mime_type: str | None = None
+    file_size: int | None = None
 
 
 class DocumentUpdate(SQLModel):
@@ -20,6 +23,7 @@ class DocumentUpdate(SQLModel):
     content: str | None = None
     doc_type: str | None = None
     status: str | None = None
+    file_path: str | None = None
 
 
 class DocumentRead(SQLModel):
@@ -31,6 +35,17 @@ class DocumentRead(SQLModel):
     source_agent_id: UUID | None = None
     agent_display_name: str | None = None
     agent_avatar_emoji: str | None = None
+    file_path: str | None = None
+    mime_type: str | None = None
+    file_size: int | None = None
     status: str
     created_at: datetime
     updated_at: datetime
+
+
+class DiscoveredFile(SQLModel):
+    path: str
+    name: str
+    mime_type: str
+    size: int
+    last_modified: str | None = None

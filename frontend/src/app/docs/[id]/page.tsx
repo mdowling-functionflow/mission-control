@@ -6,11 +6,12 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import ReactMarkdown from "react-markdown";
-import { ArrowLeft, Eye, FileCode, FileText, Pencil } from "lucide-react";
+import { ArrowLeft, Download, Eye, FileCode, FileText, Pencil } from "lucide-react";
 
 import { SignedIn, SignedOut } from "@/auth/clerk";
 import { DashboardPageLayout } from "@/components/templates/DashboardPageLayout";
 import { api, type DocumentItem } from "@/lib/executive-api";
+import { getApiBaseUrl } from "@/lib/api-base";
 
 export default function DocDetailPage() {
   const params = useParams();
@@ -112,6 +113,42 @@ export default function DocDetailPage() {
                     {saving ? "Saving..." : "Save"}
                   </button>
                 </div>
+              </div>
+            ) : doc.file_path && doc.mime_type?.includes("pdf") ? (
+              /* PDF preview */
+              <div className="p-4">
+                <div className="rounded-lg border overflow-hidden" style={{ borderColor: "var(--border)" }}>
+                  <iframe
+                    src={api.documents.downloadUrl(doc.id)}
+                    className="w-full"
+                    style={{ height: "600px" }}
+                    title={doc.title}
+                  />
+                </div>
+                <a
+                  href={api.documents.downloadUrl(doc.id)}
+                  download
+                  className="mt-3 inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-fast"
+                  style={{ borderColor: "var(--border)", color: "var(--text-muted)" }}
+                >
+                  <Download className="h-3.5 w-3.5" /> Download
+                </a>
+              </div>
+            ) : doc.file_path ? (
+              /* Non-markdown file — download only */
+              <div className="p-6 text-center">
+                <FileText className="mx-auto h-12 w-12 mb-3" style={{ color: "var(--text-quiet)" }} />
+                <p className="text-sm font-medium" style={{ color: "var(--text)" }}>{doc.title}</p>
+                <p className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
+                  {doc.mime_type} · {doc.file_size ? `${(doc.file_size / 1024).toFixed(0)}KB` : ""}
+                </p>
+                <a
+                  href={api.documents.downloadUrl(doc.id)}
+                  download
+                  className="mt-4 inline-flex items-center gap-1.5 rounded-lg bg-[color:var(--accent)] px-4 py-2 text-sm font-medium text-white hover:opacity-90"
+                >
+                  <Download className="h-4 w-4" /> Download File
+                </a>
               </div>
             ) : (
               <div className="p-6">
