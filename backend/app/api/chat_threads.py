@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import os
 from uuid import UUID, uuid4
 
@@ -268,18 +267,50 @@ async def send_thread_message(
     await session.commit()
     await session.refresh(user_msg)
 
-    # Fire off agent execution in background — don't block the HTTP response.
-    # The frontend polls every 8s and will pick up the agent's reply.
-    asyncio.create_task(_background_agent_exec(
-        org_id=ctx.organization.id,
-        agent_id=thread.executive_agent_id,
-        thread_id=thread_id,
-        openclaw_agent_id=exec_agent.openclaw_agent_id,
-        display_name=exec_agent.display_name,
-        user_message=body.content,
-        session_id=thread.session_id,
-        needs_ai_title=needs_ai_title,
-    ))
+    # Execute agent inline — Vercel serverless kills background tasks on exit
+    from app.api.agent_chat import _exec_agent_cli
+
+    response_text: str | None = None
+    try:
+        response_text = await _exec_agent_cli(
+            exec_agent.openclaw_agent_id,
+            body.content,
+            session_id=thread.session_id,
+        )
+        if response_text:
+            agent_msg = AgentMessage(
+                organization_id=ctx.organization.id,
+                executive_agent_id=thread.executive_agent_id,
+                thread_id=thread_id,
+                role="agent",
+                content=response_text,
+            )
+            session.add(agent_msg)
+            thread.updated_at = utcnow()
+            session.add(thread)
+            await session.commit()
+    except Exception as exc:
+        logger.warning("chat_thread.exec.failed", error=str(exc))
+        err_msg = AgentMessage(
+            organization_id=ctx.organization.id,
+            executive_agent_id=thread.executive_agent_id,
+            thread_id=thread_id,
+            role="system",
+            content=f"Could not reach {exec_agent.display_name}: {str(exc)[:200]}",
+        )
+        session.add(err_msg)
+        await session.commit()
+
+    # One-shot AI title — only for brand new threads, never retried
+    if needs_ai_title:
+        try:
+            ai_title = await _generate_ai_title(body.content, response_text)
+            if ai_title:
+                thread.title = ai_title
+                session.add(thread)
+                await session.commit()
+        except Exception:
+            pass  # Keep fallback title
 
     return ThreadMessageRead(
         id=str(user_msg.id),
@@ -350,69 +381,6 @@ async def upload_thread_attachment(
         attachment_mime=msg.attachment_mime,
         attachment_size=msg.attachment_size,
     )
-
-
-async def _background_agent_exec(
-    *,
-    org_id: UUID,
-    agent_id: UUID,
-    thread_id: UUID,
-    openclaw_agent_id: str,
-    display_name: str,
-    user_message: str,
-    session_id: str,
-    needs_ai_title: bool,
-) -> None:
-    """Background task: execute agent CLI, save response, optionally generate AI title."""
-    from app.api.agent_chat import _exec_agent_cli
-    from app.db.session import async_session_maker
-
-    response_text: str | None = None
-    async with async_session_maker() as session:
-        try:
-            response_text = await _exec_agent_cli(
-                openclaw_agent_id,
-                user_message,
-                session_id=session_id,
-            )
-            if response_text:
-                agent_msg = AgentMessage(
-                    organization_id=org_id,
-                    executive_agent_id=agent_id,
-                    thread_id=thread_id,
-                    role="agent",
-                    content=response_text,
-                )
-                session.add(agent_msg)
-                thread = await ChatThread.objects.by_id(thread_id).first(session)
-                if thread:
-                    thread.updated_at = utcnow()
-                    session.add(thread)
-                await session.commit()
-        except Exception as exc:
-            logger.warning("chat_thread.bg_exec.failed", error=str(exc))
-            err_msg = AgentMessage(
-                organization_id=org_id,
-                executive_agent_id=agent_id,
-                thread_id=thread_id,
-                role="system",
-                content=f"Could not reach {display_name}: {str(exc)[:200]}",
-            )
-            session.add(err_msg)
-            await session.commit()
-
-        # One-shot AI title — runs exactly once per thread, never retried
-        if needs_ai_title:
-            try:
-                ai_title = await _generate_ai_title(user_message, response_text)
-                if ai_title:
-                    thread = await ChatThread.objects.by_id(thread_id).first(session)
-                    if thread:
-                        thread.title = ai_title
-                        session.add(thread)
-                        await session.commit()
-            except Exception:
-                pass  # Keep fallback title
 
 
 @router.patch("/{thread_id}", response_model=ChatThreadRead)
