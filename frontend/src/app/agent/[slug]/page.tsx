@@ -23,6 +23,7 @@ import {
   XCircle,
 } from "lucide-react";
 
+import ReactMarkdown from "react-markdown";
 import { SignedIn, SignedOut } from "@/auth/clerk";
 import { DashboardPageLayout } from "@/components/templates/DashboardPageLayout";
 import { cn } from "@/lib/utils";
@@ -33,6 +34,7 @@ import {
   type AgentApproval,
   type AgentImprovement,
   type ComposedTask,
+  type AgentFileInfo,
   type InstalledSkill,
   type DocumentItem,
   type ChatMessage,
@@ -89,75 +91,73 @@ export default function AgentWorkspacePage() {
 
   return (
     <DashboardPageLayout
-      signedOut={{ message: "Sign in", forceRedirectUrl: "/home" }}
-      title={`${agent.avatar_emoji || ""} ${agent.display_name}`}
-      description={agent.executive_role}
+      signedOut={{ message: "Sign in", forceRedirectUrl: "/agent/main" }}
+      title=""
+      hideHeader
     >
       <SignedOut>
         <div className="py-20 text-center" style={{ color: "var(--text-muted)" }}>Sign in to continue.</div>
       </SignedOut>
       <SignedIn>
-        <div className="mx-auto max-w-4xl space-y-6">
-          {/* Header */}
-          <div className="rounded-2xl border p-5 shadow-elevation-1" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
-            <div className="flex items-start gap-4">
-              <span className="text-4xl">{agent.avatar_emoji || "🤖"}</span>
-              <div className="flex-1">
-                <div className="flex items-center gap-2">
-                  <h2 className="text-xl font-bold" style={{ color: "var(--text)" }}>{agent.display_name}</h2>
-                  <span className={cn(
-                    "rounded-full px-2 py-0.5 text-xs font-medium",
-                    agent.status === "active" && "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400",
-                    agent.status === "bound" && "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400",
-                  )}>
-                    {agent.status}
-                  </span>
-                </div>
-                <p className="text-sm mt-0.5" style={{ color: "var(--text-muted)" }}>{agent.executive_role}</p>
-                {agent.current_focus && <p className="text-xs mt-2" style={{ color: "var(--text-muted)" }}>{agent.current_focus}</p>}
-              </div>
-              <div className="flex gap-4 text-center shrink-0">
-                <div>
-                  <p className="text-lg font-bold" style={{ color: "var(--text)" }}>{agent.pending_approvals_count}</p>
-                  <p className="text-[10px]" style={{ color: "var(--text-quiet)" }}>Pending</p>
-                </div>
-                <div>
-                  <p className="text-lg font-bold" style={{ color: "var(--text)" }}>{agent.active_tasks_count}</p>
-                  <p className="text-[10px]" style={{ color: "var(--text-quiet)" }}>Active</p>
-                </div>
-              </div>
-            </div>
-            {agent.current_risk && (
-              <div className="mt-3 flex items-center gap-2 rounded-lg bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800/30 p-2.5 text-xs text-amber-800 dark:text-amber-400">
-                <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-                {agent.current_risk}
-              </div>
+        <div className="flex flex-col h-[calc(100vh-64px)]">
+          {/* Compact header bar */}
+          <div className="flex items-center gap-3 px-4 py-2 border-b shrink-0" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
+            <span className="text-lg">{agent.avatar_emoji || "🤖"}</span>
+            <h2 className="text-sm font-semibold" style={{ color: "var(--text)" }}>{agent.display_name}</h2>
+            <span className={cn(
+              "rounded px-1.5 py-0.5 text-[10px] font-medium",
+              agent.status === "active" && "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400",
+              agent.status === "bound" && "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400",
+            )}>
+              {agent.status}
+            </span>
+            <span className="text-[11px]" style={{ color: "var(--text-quiet)" }}>{agent.executive_role}</span>
+            {agent.current_focus && (
+              <span className="text-[11px] truncate max-w-[200px]" style={{ color: "var(--text-muted)" }}>
+                · {agent.current_focus}
+              </span>
             )}
+            <div className="ml-auto flex items-center gap-3 text-[11px] shrink-0" style={{ color: "var(--text-quiet)" }}>
+              {agent.pending_approvals_count > 0 && (
+                <span className="rounded-full bg-amber-100 dark:bg-amber-900/30 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-400">
+                  {agent.pending_approvals_count} pending
+                </span>
+              )}
+              <span>{agent.active_tasks_count} active</span>
+            </div>
           </div>
 
+          {/* Risk banner */}
+          {agent.current_risk && (
+            <div className="flex items-center gap-2 px-4 py-1.5 border-b text-xs shrink-0" style={{ borderColor: "var(--border)", background: "rgba(217,119,6,0.05)", color: "var(--warning)" }}>
+              <AlertTriangle className="h-3 w-3 shrink-0" />
+              {agent.current_risk}
+            </div>
+          )}
+
           {/* Tabs */}
-          <div className="flex gap-1 border-b overflow-x-auto" style={{ borderColor: "var(--border)" }}>
+          <div className="flex gap-0.5 px-4 border-b overflow-x-auto shrink-0" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
             {[...BASE_TABS, ...(slug === "main" ? MARIO_EXTRA_TABS : [])].map(({ key, label, icon: Icon }) => (
               <button
                 key={key}
                 onClick={() => setActiveTab(key)}
                 className={cn(
-                  "flex items-center gap-1.5 px-3 py-2 text-xs font-medium border-b-2 transition-fast",
+                  "flex items-center gap-1.5 px-3 py-2 text-[11px] font-medium border-b-2 transition-fast whitespace-nowrap",
                   activeTab === key
                     ? "border-[color:var(--accent)] text-[color:var(--accent)]"
                     : "border-transparent text-[color:var(--text-muted)] hover:text-[color:var(--text)]",
                 )}
               >
-                <Icon className="h-3.5 w-3.5" />
+                <Icon className="h-3 w-3" />
                 {label}
               </button>
             ))}
           </div>
 
-          {/* Tab content */}
-          <div className="min-h-[300px]">
+          {/* Tab content — fills remaining space */}
+          <div className="flex-1 overflow-y-auto p-4">
             {activeTab === "chat" && <ChatTab agent={agent} />}
-            {activeTab === "agent" && <AgentTab agent={agent} />}
+            {activeTab === "agent" && <AgentTab agent={agent} slug={slug} />}
             {activeTab === "skills" && <SkillsTab agentId={agent.id} />}
             {activeTab === "tasks" && <TasksTab agentId={agent.id} />}
             {activeTab === "knowledge" && <KnowledgeTab agentId={agent.id} />}
@@ -409,43 +409,154 @@ function ChatTab({ agent }: { agent: ExecutiveAgent }) {
   );
 }
 
-function AgentTab({ agent }: { agent: ExecutiveAgent }) {
-  const [activities, setActivities] = useState<AgentActivity[]>([]);
+function AgentTab({ agent, slug }: { agent: ExecutiveAgent; slug: string }) {
+  const [files, setFiles] = useState<AgentFileInfo[]>([]);
+  const [selectedFile, setSelectedFile] = useState<string | null>(null);
+  const [fileContent, setFileContent] = useState<string>("");
+  const [originalContent, setOriginalContent] = useState<string>("");
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [showPreview, setShowPreview] = useState(false);
 
   useEffect(() => {
-    api.agents.activity(agent.id).then(setActivities).catch(console.error).finally(() => setLoading(false));
-  }, [agent.id]);
+    api.agentFiles.list(slug).then((f) => {
+      setFiles(f);
+      // Auto-select SOUL.md if it exists
+      const soul = f.find((x) => x.name === "SOUL.md");
+      if (soul) setSelectedFile(soul.name);
+      else if (f.length > 0) setSelectedFile(f[0].name);
+    }).catch(console.error).finally(() => setLoading(false));
+  }, [slug]);
+
+  useEffect(() => {
+    if (!selectedFile) return;
+    api.agentFiles.get(slug, selectedFile).then((f) => {
+      setFileContent(f.content);
+      setOriginalContent(f.content);
+    }).catch(console.error);
+  }, [slug, selectedFile]);
+
+  const handleSave = async () => {
+    if (!selectedFile || fileContent === originalContent) return;
+    setSaving(true);
+    try {
+      await api.agentFiles.write(slug, selectedFile, fileContent);
+      setOriginalContent(fileContent);
+    } catch (e) { console.error(e); }
+    finally { setSaving(false); }
+  };
+
+  const hasChanges = fileContent !== originalContent;
+  const isMarkdown = selectedFile?.endsWith(".md");
+
+  if (loading) return <Spinner />;
+  if (files.length === 0) return <EmptyState text="No agent spec files found" />;
+
+  // Separate spec files and memory files
+  const specFiles = files.filter((f) => !f.is_memory);
+  const memoryFiles = files.filter((f) => f.is_memory);
 
   return (
-    <div className="space-y-6">
-      <EditableField
-        label="Mandate"
-        value={agent.role_description || ""}
-        onSave={async (val) => { await api.agents.update(agent.id, { role_description: val }); }}
-        multiline
-      />
-      <EditableField
-        label="Current Focus"
-        value={agent.current_focus || ""}
-        onSave={async (val) => { await api.agents.update(agent.id, { current_focus: val }); }}
-      />
-      <div>
-        <h4 className="text-[10px] font-semibold uppercase tracking-widest mb-2" style={{ color: "var(--text-quiet)" }}>Recent Activity</h4>
-        {loading ? <Spinner /> : activities.length === 0 ? <EmptyState text="No recent activity" /> : (
-          <div className="space-y-1">
-            {activities.map((e) => (
-              <div key={e.id} className="flex items-center gap-3 rounded px-3 py-1.5 text-xs" style={{ color: "var(--text-muted)" }}>
-                <span className="rounded bg-[color:var(--surface-muted)] px-1.5 py-0.5 text-[10px] font-medium shrink-0">{e.event_type}</span>
-                <span className="flex-1 truncate">{e.message || "—"}</span>
-                <span style={{ color: "var(--text-quiet)" }} className="shrink-0">
-                  {new Date(e.created_at).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
-                </span>
-              </div>
+    <div className="space-y-3">
+      {/* DB metadata (compact) */}
+      <div className="flex gap-4 text-xs">
+        <EditableField
+          label="Mandate"
+          value={agent.role_description || ""}
+          onSave={async (val) => { await api.agents.update(agent.id, { role_description: val }); }}
+          multiline
+        />
+        <EditableField
+          label="Focus"
+          value={agent.current_focus || ""}
+          onSave={async (val) => { await api.agents.update(agent.id, { current_focus: val }); }}
+        />
+      </div>
+
+      {/* File pills */}
+      <div className="flex flex-wrap gap-1">
+        {specFiles.map((f) => (
+          <button
+            key={f.name}
+            onClick={() => { setSelectedFile(f.name); setShowPreview(false); }}
+            className={cn(
+              "rounded-md px-2 py-1 text-[11px] font-medium transition-fast",
+              selectedFile === f.name
+                ? "bg-[color:var(--accent-soft)] text-[color:var(--accent)]"
+                : "text-[color:var(--text-muted)] hover:bg-[color:var(--surface-muted)]",
+            )}
+          >
+            {f.name}
+          </button>
+        ))}
+        {memoryFiles.length > 0 && (
+          <>
+            <span className="text-[10px] self-center px-1" style={{ color: "var(--text-quiet)" }}>|</span>
+            {memoryFiles.map((f) => (
+              <button
+                key={f.name}
+                onClick={() => { setSelectedFile(f.name); setShowPreview(false); }}
+                className={cn(
+                  "rounded-md px-2 py-1 text-[11px] font-medium transition-fast",
+                  selectedFile === f.name
+                    ? "bg-[color:var(--accent-soft)] text-[color:var(--accent)]"
+                    : "text-[color:var(--text-quiet)] hover:bg-[color:var(--surface-muted)]",
+                )}
+              >
+                {f.name.replace("memory/", "📝 ")}
+              </button>
             ))}
-          </div>
+          </>
         )}
       </div>
+
+      {/* Editor */}
+      {selectedFile && (
+        <div className="rounded-lg border overflow-hidden" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
+          {/* Toolbar */}
+          <div className="flex items-center justify-between border-b px-3 py-1.5" style={{ borderColor: "var(--border)" }}>
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] font-medium" style={{ color: "var(--text)" }}>{selectedFile}</span>
+              {hasChanges && (
+                <span className="rounded bg-amber-100 dark:bg-amber-900/30 px-1.5 py-0.5 text-[9px] font-medium text-amber-700 dark:text-amber-400">
+                  Modified
+                </span>
+              )}
+            </div>
+            <div className="flex items-center gap-1.5">
+              {isMarkdown && (
+                <button
+                  onClick={() => setShowPreview(!showPreview)}
+                  className="rounded px-2 py-0.5 text-[10px] transition-fast" style={{ color: "var(--text-muted)" }}
+                >
+                  {showPreview ? "Editor" : "Preview"}
+                </button>
+              )}
+              <button
+                onClick={handleSave}
+                disabled={!hasChanges || saving}
+                className="rounded bg-[color:var(--accent)] px-2.5 py-0.5 text-[10px] font-medium text-white disabled:opacity-30 transition-fast"
+              >
+                {saving ? "Saving..." : "Save"}
+              </button>
+            </div>
+          </div>
+
+          {/* Content */}
+          {showPreview && isMarkdown ? (
+            <div className="p-4 prose prose-sm prose-slate dark:prose-invert max-w-none max-h-[500px] overflow-auto">
+              <ReactMarkdown>{fileContent}</ReactMarkdown>
+            </div>
+          ) : (
+            <textarea
+              className="w-full px-3 py-2 text-xs font-mono min-h-[400px] max-h-[600px] resize-y focus:outline-none"
+              style={{ background: "var(--surface-muted)", color: "var(--text)" }}
+              value={fileContent}
+              onChange={(e) => setFileContent(e.target.value)}
+            />
+          )}
+        </div>
+      )}
     </div>
   );
 }

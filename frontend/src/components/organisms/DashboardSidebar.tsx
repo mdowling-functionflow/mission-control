@@ -5,13 +5,13 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   Activity,
+  Clock,
   FileCode,
   FileText,
-  MessageSquare,
+  Lightbulb,
   Moon,
   Settings,
   Sun,
-  Users,
 } from "lucide-react";
 
 import {
@@ -42,66 +42,65 @@ export function DashboardSidebar() {
 
   return (
     <aside
-      className="fixed inset-y-0 left-0 z-40 flex w-[280px] -translate-x-full flex-col border-r pt-16 transition-transform duration-200 ease-in-out [[data-sidebar=open]_&]:translate-x-0 md:relative md:inset-auto md:z-auto md:w-[220px] md:translate-x-0 md:pt-0 md:transition-none"
+      className="fixed inset-y-0 left-0 z-40 flex w-[280px] -translate-x-full flex-col border-r pt-16 transition-transform duration-200 ease-in-out [[data-sidebar=open]_&]:translate-x-0 md:relative md:inset-auto md:z-auto md:w-[200px] md:translate-x-0 md:pt-0 md:transition-none"
       style={{ borderColor: "var(--border)", background: "var(--surface)" }}
     >
-      <div className="flex-1 overflow-y-auto px-3 py-4">
-        {/* Primary */}
+      <div className="flex-1 overflow-y-auto px-2 py-3">
+        {/* Workspaces — PRIMARY */}
+        <p className="px-3 pb-1.5 text-[9px] font-bold uppercase tracking-[0.15em]" style={{ color: "var(--text-quiet)" }}>
+          Workspaces
+        </p>
         <nav className="space-y-0.5">
-          <NavItem href="/home" icon={<MessageSquare className="h-4 w-4" />} label="Home" active={pathname === "/home"} />
-          <NavItem href="/docs" icon={<FileText className="h-4 w-4" />} label="Docs" active={pathname.startsWith("/docs")} />
+          {agents.length > 0 ? agents.map((agent) => (
+            <NavItem
+              key={agent.id}
+              href={`/agent/${agent.openclaw_agent_id}`}
+              icon={<span className="text-sm leading-none">{agent.avatar_emoji || "🤖"}</span>}
+              label={agent.display_name}
+              active={pathname === `/agent/${agent.openclaw_agent_id}`}
+            />
+          )) : (
+            // Skeleton while loading
+            Array.from({ length: 5 }).map((_, i) => (
+              <div key={i} className="h-8 rounded-lg animate-pulse mx-1" style={{ background: "var(--surface-muted)" }} />
+            ))
+          )}
         </nav>
 
-        {/* Agent Workspaces */}
-        {agents.length > 0 && (
-          <div className="mt-5">
-            <p className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-widest" style={{ color: "var(--text-quiet)" }}>
-              Workspaces
-            </p>
-            <nav className="space-y-0.5">
-              {agents.map((agent) => (
-                <NavItem
-                  key={agent.id}
-                  href={`/agent/${agent.openclaw_agent_id}`}
-                  icon={<span className="text-sm leading-none">{agent.avatar_emoji || "🤖"}</span>}
-                  label={agent.display_name}
-                  active={pathname === `/agent/${agent.openclaw_agent_id}`}
-                />
-              ))}
-            </nav>
-          </div>
-        )}
-
-        {/* Management */}
+        {/* Manage — SECONDARY */}
         <div className="mt-5">
-          <p className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-widest" style={{ color: "var(--text-quiet)" }}>
+          <p className="px-3 pb-1.5 text-[9px] font-bold uppercase tracking-[0.15em]" style={{ color: "var(--text-quiet)" }}>
             Manage
           </p>
           <nav className="space-y-0.5">
-            <NavItem href="/executive-agents" icon={<Users className="h-4 w-4" />} label="Agents" active={pathname.startsWith("/executive-agents")} />
-            <NavItem href="/skills-editor" icon={<FileCode className="h-4 w-4" />} label="Skills" active={pathname.startsWith("/skills-editor")} />
-            <NavItem href="/ops" icon={<Activity className="h-4 w-4" />} label="Ops" active={pathname.startsWith("/ops")} muted />
+            <NavItem href="/docs" icon={<FileText className="h-3.5 w-3.5" />} label="Docs" active={pathname.startsWith("/docs")} />
+            <NavItem href="/schedules" icon={<Clock className="h-3.5 w-3.5" />} label="Schedules" active={pathname.startsWith("/schedules")} />
+            <NavItem href="/skills-editor" icon={<FileCode className="h-3.5 w-3.5" />} label="Skills" active={pathname.startsWith("/skills-editor")} />
+            <NavItem href="/improvements" icon={<Lightbulb className="h-3.5 w-3.5" />} label="Improvements" active={pathname.startsWith("/improvements")} />
+            <NavItem href="/ops" icon={<Activity className="h-3.5 w-3.5" />} label="Ops" active={pathname.startsWith("/ops")} muted />
           </nav>
         </div>
       </div>
 
       {/* Footer */}
-      <div className="border-t p-3" style={{ borderColor: "var(--border)" }}>
-        <div className="flex items-center gap-2 text-[11px]" style={{ color: "var(--text-quiet)" }}>
-          <span className={cn("h-1.5 w-1.5 rounded-full", systemStatus === "operational" && "bg-emerald-500", systemStatus === "degraded" && "bg-rose-500", systemStatus === "unknown" && "bg-slate-300")} />
-          {systemStatus === "operational" ? "Systems OK" : systemStatus === "degraded" ? "Degraded" : "..."}
-        </div>
-        <div className="mt-2 flex items-center gap-2">
-          <Link href="/settings" className="text-[11px] transition-smooth" style={{ color: "var(--text-quiet)" }}>
-            <Settings className="h-3.5 w-3.5" />
-          </Link>
-          <button
-            onClick={() => setTheme(resolved === "dark" ? "light" : "dark")}
-            className="ml-auto rounded p-1 transition-smooth hover:bg-[color:var(--surface-muted)]"
-            style={{ color: "var(--text-quiet)" }}
-          >
-            {resolved === "dark" ? <Sun className="h-3.5 w-3.5" /> : <Moon className="h-3.5 w-3.5" />}
-          </button>
+      <div className="border-t px-3 py-2" style={{ borderColor: "var(--border)" }}>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-1.5 text-[10px]" style={{ color: "var(--text-quiet)" }}>
+            <span className={cn("h-1.5 w-1.5 rounded-full", systemStatus === "operational" && "bg-emerald-500", systemStatus === "degraded" && "bg-rose-500", systemStatus === "unknown" && "bg-slate-300")} />
+            {systemStatus === "operational" ? "OK" : systemStatus === "degraded" ? "!" : "…"}
+          </div>
+          <div className="flex items-center gap-1">
+            <Link href="/settings" className="rounded p-1 transition-smooth hover:bg-[color:var(--surface-muted)]" style={{ color: "var(--text-quiet)" }}>
+              <Settings className="h-3 w-3" />
+            </Link>
+            <button
+              onClick={() => setTheme(resolved === "dark" ? "light" : "dark")}
+              className="rounded p-1 transition-smooth hover:bg-[color:var(--surface-muted)]"
+              style={{ color: "var(--text-quiet)" }}
+            >
+              {resolved === "dark" ? <Sun className="h-3 w-3" /> : <Moon className="h-3 w-3" />}
+            </button>
+          </div>
         </div>
       </div>
     </aside>
@@ -119,7 +118,7 @@ function NavItem({ href, icon, label, active, muted }: {
     <Link
       href={href}
       className={cn(
-        "flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] transition-smooth",
+        "flex items-center gap-2 rounded-md px-3 py-1.5 text-[12px] transition-smooth",
         active
           ? "bg-[color:var(--accent-soft)] text-[color:var(--accent)] font-medium"
           : muted

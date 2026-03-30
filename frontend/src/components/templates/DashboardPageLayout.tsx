@@ -27,6 +27,7 @@ type DashboardPageLayoutProps = {
   isAdmin?: boolean;
   adminOnlyMessage?: string;
   stickyHeader?: boolean;
+  hideHeader?: boolean;
   mainClassName?: string;
   headerClassName?: string;
   contentClassName?: string;
@@ -42,6 +43,7 @@ export function DashboardPageLayout({
   isAdmin,
   adminOnlyMessage,
   stickyHeader = false,
+  hideHeader = false,
   mainClassName,
   headerClassName,
   contentClassName,
@@ -69,6 +71,7 @@ export function DashboardPageLayout({
           className={cn("flex-1 overflow-y-auto", mainClassName)}
           style={{ background: "var(--bg)" }}
         >
+          {!hideHeader && (
           <div
             style={{ borderColor: "var(--border)", background: "var(--surface)" }}
             className={cn(
@@ -81,11 +84,11 @@ export function DashboardPageLayout({
               {headerActions ? (
                 <div className="flex flex-wrap items-center justify-between gap-4">
                   <div>
-                    <h1 className="font-heading text-2xl font-semibold tracking-tight text-slate-900">
+                    <h1 className="font-heading text-2xl font-semibold tracking-tight" style={{ color: "var(--text)" }}>
                       {title}
                     </h1>
                     {description ? (
-                      <p className="mt-1 text-sm text-slate-500">
+                      <p className="mt-1 text-sm" style={{ color: "var(--text-muted)" }}>
                         {description}
                       </p>
                     ) : null}
@@ -94,18 +97,19 @@ export function DashboardPageLayout({
                 </div>
               ) : (
                 <div>
-                  <h1 className="font-heading text-2xl font-semibold tracking-tight text-slate-900">
+                  <h1 className="font-heading text-2xl font-semibold tracking-tight" style={{ color: "var(--text)" }}>
                     {title}
                   </h1>
                   {description ? (
-                    <p className="mt-1 text-sm text-slate-500">{description}</p>
+                    <p className="mt-1 text-sm" style={{ color: "var(--text-muted)" }}>{description}</p>
                   ) : null}
                 </div>
               )}
             </div>
           </div>
+          )}
 
-          <div className={cn("p-4 md:p-8", contentClassName)}>
+          <div className={cn(hideHeader ? "p-0" : "p-4 md:p-8", contentClassName)}>
             {showAdminOnlyNotice ? (
               <AdminOnlyNotice message={adminOnlyMessage ?? ""} />
             ) : (

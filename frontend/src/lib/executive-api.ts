@@ -171,6 +171,22 @@ export interface AgentImprovement {
   created_at: string;
 }
 
+// ─── Agent Files Types ───────────────────────────────────────────────
+
+export interface AgentFileInfo {
+  name: string;
+  size: number;
+  last_modified: string | null;
+  is_memory: boolean;
+}
+
+export interface AgentFileContent {
+  name: string;
+  content: string;
+  size: number;
+  last_modified: string | null;
+}
+
 // ─── Skills Editor Types ─────────────────────────────────────────────
 
 export interface InstalledSkill {
@@ -380,6 +396,18 @@ export const api = {
       execFetch<Improvement>(`/api/v1/improvements/${id}`, {
         method: "PATCH",
         body: JSON.stringify(data),
+      }),
+  },
+
+  agentFiles: {
+    list: (agentSlug: string) =>
+      execFetch<AgentFileInfo[]>(`/api/v1/agent-files/${agentSlug}`),
+    get: (agentSlug: string, filename: string) =>
+      execFetch<AgentFileContent>(`/api/v1/agent-files/${agentSlug}/${filename}`),
+    write: (agentSlug: string, filename: string, content: string) =>
+      execFetch<AgentFileContent>(`/api/v1/agent-files/${agentSlug}/${filename}`, {
+        method: "PUT",
+        body: JSON.stringify({ content }),
       }),
   },
 

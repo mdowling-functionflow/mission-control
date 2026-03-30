@@ -348,6 +348,145 @@ async def chat_with_agent(body: ChatRequest):
         return ChatResponse(response=output)
 
 
+# ---------------------------------------------------------------------------
+# Agent Spec Files — read/write real agent workspace files
+# ---------------------------------------------------------------------------
+
+AGENT_SPEC_FILES = {
+    "SOUL.md", "MEMORY.md", "USER.md", "IDENTITY.md", "HEARTBEAT.md",
+    "TOOLS.md", "AGENTS.md", "PRIVACY.md", "SESSION-STATE.md",
+    "USER.shared-reference.md",
+}
+
+
+def _resolve_agent_workspace(agent_id: str) -> Path:
+    """Resolve agent workspace directory."""
+    base = Path(OPENCLAW_DIR)
+    if agent_id == "main":
+        return base / "workspace"
+    return base / f"workspace-{agent_id}"
+
+
+class AgentFileInfo(BaseModel):
+    name: str
+    size: int
+    last_modified: str | None = None
+    is_memory: bool = False
+
+
+class AgentFileContent(BaseModel):
+    name: str
+    content: str
+    size: int
+    last_modified: str | None = None
+
+
+class AgentFileWrite(BaseModel):
+    content: str
+
+
+@app.get("/agent-files/{agent_id}", response_model=list[AgentFileInfo], dependencies=[Depends(verify_token)])
+async def list_agent_files(agent_id: str):
+    """List spec files in an agent's workspace."""
+    ws = _resolve_agent_workspace(agent_id)
+    if not ws.is_dir():
+        return []
+
+    files: list[AgentFileInfo] = []
+
+    # Spec files
+    for entry in sorted(ws.iterdir()):
+        if entry.is_file() and entry.name in AGENT_SPEC_FILES:
+            mtime = datetime.fromtimestamp(entry.stat().st_mtime, tz=UTC).replace(tzinfo=None).isoformat()
+            files.append(AgentFileInfo(
+                name=entry.name,
+                size=entry.stat().st_size,
+                last_modified=mtime,
+            ))
+
+    # Memory files (memory/*.md)
+    memory_dir = ws / "memory"
+    if memory_dir.is_dir():
+        for entry in sorted(memory_dir.iterdir()):
+            if entry.is_file() and entry.suffix == ".md":
+                mtime = datetime.fromtimestamp(entry.stat().st_mtime, tz=UTC).replace(tzinfo=None).isoformat()
+                files.append(AgentFileInfo(
+                    name=f"memory/{entry.name}",
+                    size=entry.stat().st_size,
+                    last_modified=mtime,
+                    is_memory=True,
+                ))
+
+    return files
+
+
+@app.get("/agent-files/{agent_id}/{filename:path}", response_model=AgentFileContent, dependencies=[Depends(verify_token)])
+async def read_agent_file(agent_id: str, filename: str):
+    """Read a single agent spec or memory file."""
+    # Security: validate filename
+    base_name = filename.split("/")[-1] if "/" in filename else filename
+    if filename.startswith("memory/"):
+        if not base_name.endswith(".md"):
+            raise HTTPException(status_code=400, detail="Only .md memory files allowed")
+    elif filename not in AGENT_SPEC_FILES:
+        raise HTTPException(status_code=400, detail=f"File '{filename}' not in allowed set")
+
+    ws = _resolve_agent_workspace(agent_id)
+    fpath = ws / filename
+
+    if not fpath.is_file():
+        raise HTTPException(status_code=404, detail=f"File '{filename}' not found")
+
+    # Security: ensure within workspace
+    try:
+        fpath.resolve().relative_to(ws.resolve())
+    except ValueError:
+        raise HTTPException(status_code=403, detail="Path traversal")
+
+    content = fpath.read_text(encoding="utf-8", errors="replace")
+    mtime = datetime.fromtimestamp(fpath.stat().st_mtime, tz=UTC).replace(tzinfo=None).isoformat()
+
+    return AgentFileContent(
+        name=filename,
+        content=content,
+        size=len(content),
+        last_modified=mtime,
+    )
+
+
+@app.put("/agent-files/{agent_id}/{filename:path}", response_model=AgentFileContent, dependencies=[Depends(verify_token)])
+async def write_agent_file(agent_id: str, filename: str, body: AgentFileWrite):
+    """Write a single agent spec or memory file."""
+    base_name = filename.split("/")[-1] if "/" in filename else filename
+    if filename.startswith("memory/"):
+        if not base_name.endswith(".md"):
+            raise HTTPException(status_code=400, detail="Only .md memory files allowed")
+    elif filename not in AGENT_SPEC_FILES:
+        raise HTTPException(status_code=400, detail=f"File '{filename}' not in allowed set")
+
+    ws = _resolve_agent_workspace(agent_id)
+    fpath = ws / filename
+
+    # Security: ensure within workspace
+    try:
+        fpath.resolve().relative_to(ws.resolve())
+    except ValueError:
+        raise HTTPException(status_code=403, detail="Path traversal")
+
+    # Create parent directories if needed (for memory/ files)
+    fpath.parent.mkdir(parents=True, exist_ok=True)
+
+    fpath.write_text(body.content, encoding="utf-8")
+    mtime = datetime.fromtimestamp(fpath.stat().st_mtime, tz=UTC).replace(tzinfo=None).isoformat()
+
+    return AgentFileContent(
+        name=filename,
+        content=body.content,
+        size=len(body.content),
+        last_modified=mtime,
+    )
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8100)
