@@ -155,6 +155,7 @@ async def list_threads(
     threads = await ChatThread.objects.filter_by(
         organization_id=ctx.organization.id,
         executive_agent_id=agent_id,
+        is_active=True,
     ).order_by(col(ChatThread.updated_at).desc()).all(session)
 
     return [await _thread_to_read(session, t) for t in threads]
