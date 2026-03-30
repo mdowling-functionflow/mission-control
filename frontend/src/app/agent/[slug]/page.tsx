@@ -188,6 +188,7 @@ function ChatTab({ agent }: { agent: ExecutiveAgent }) {
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [fastPoll, setFastPoll] = useState(false);
+  const [stoppedGen, setStoppedGen] = useState(false);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -248,6 +249,7 @@ function ChatTab({ agent }: { agent: ExecutiveAgent }) {
     const fileToUpload = pendingFile;
     setPendingFile(null);
     setSending(true);
+    setStoppedGen(false);
     try {
       let threadId = activeThreadId;
       // Auto-create thread if none exists
@@ -469,7 +471,7 @@ function ChatTab({ agent }: { agent: ExecutiveAgent }) {
               </div>
             ))}
             {/* Typing indicator + stop button */}
-            {messages.length > 0 && messages[messages.length - 1].role === "user" && (
+            {!stoppedGen && messages.length > 0 && messages[messages.length - 1].role === "user" && (
               <div className="flex items-center gap-3 px-1 py-2">
                 <span className="text-sm">{agent.avatar_emoji || "🤖"}</span>
                 <div className="flex gap-1">
@@ -479,12 +481,8 @@ function ChatTab({ agent }: { agent: ExecutiveAgent }) {
                 </div>
                 <button
                   onClick={() => {
-                    setMessages((prev) => [...prev, {
-                      id: `stop-${Date.now()}`,
-                      role: "system",
-                      content: "Generation stopped.",
-                      created_at: new Date().toISOString(),
-                    }]);
+                    setStoppedGen(true);
+                    setFastPoll(false);
                   }}
                   className="flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-[11px] font-medium transition-fast hover:bg-[color:var(--surface-muted)]"
                   style={{ borderColor: "var(--border)", color: "var(--text-muted)" }}
