@@ -6,7 +6,7 @@ import asyncio
 import os
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, Query, UploadFile, status
 from sqlmodel import SQLModel, col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -53,6 +53,10 @@ class ThreadMessageRead(SQLModel):
     role: str
     content: str
     created_at: str
+    attachment_name: str | None = None
+    attachment_path: str | None = None
+    attachment_mime: str | None = None
+    attachment_size: int | None = None
 
 
 class ThreadSendRequest(SQLModel):
@@ -211,6 +215,10 @@ async def list_thread_messages(
             role=m.role,
             content=m.content,
             created_at=m.created_at.isoformat(),
+            attachment_name=m.attachment_name,
+            attachment_path=m.attachment_path,
+            attachment_mime=m.attachment_mime,
+            attachment_size=m.attachment_size,
         )
         for m in messages
     ]
@@ -278,6 +286,69 @@ async def send_thread_message(
         role=user_msg.role,
         content=user_msg.content,
         created_at=user_msg.created_at.isoformat(),
+    )
+
+
+@router.post("/{thread_id}/upload", response_model=ThreadMessageRead)
+async def upload_thread_attachment(
+    thread_id: UUID,
+    file: UploadFile,
+    caption: str = "",
+    session: AsyncSession = SESSION_DEP,
+    ctx: OrganizationContext = ORG_MEMBER_DEP,
+) -> ThreadMessageRead:
+    """Upload a file attachment to a chat thread."""
+    thread = await ChatThread.objects.filter_by(
+        id=thread_id,
+        organization_id=ctx.organization.id,
+    ).first(session)
+    if not thread:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+
+    # Proxy upload to bridge
+    attachment_meta = None
+    if settings.bridge_url:
+        import httpx
+        try:
+            file_content = await file.read()
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                resp = await client.post(
+                    f"{settings.bridge_url.rstrip('/')}/chat/upload",
+                    headers={"X-Bridge-Token": settings.bridge_token},
+                    files={"file": (file.filename, file_content, file.content_type or "application/octet-stream")},
+                )
+            if resp.status_code == 200:
+                attachment_meta = resp.json()
+        except Exception as exc:
+            logger.warning("chat_thread.upload.failed", error=str(exc))
+
+    # Save message with attachment
+    msg = AgentMessage(
+        organization_id=ctx.organization.id,
+        executive_agent_id=thread.executive_agent_id,
+        thread_id=thread_id,
+        role="user",
+        content=caption or f"📎 {file.filename}",
+        attachment_name=attachment_meta.get("name") if attachment_meta else file.filename,
+        attachment_path=attachment_meta.get("path") if attachment_meta else None,
+        attachment_mime=attachment_meta.get("mime") if attachment_meta else file.content_type,
+        attachment_size=attachment_meta.get("size") if attachment_meta else None,
+    )
+    session.add(msg)
+    thread.updated_at = utcnow()
+    session.add(thread)
+    await session.commit()
+    await session.refresh(msg)
+
+    return ThreadMessageRead(
+        id=str(msg.id),
+        role=msg.role,
+        content=msg.content,
+        created_at=msg.created_at.isoformat(),
+        attachment_name=msg.attachment_name,
+        attachment_path=msg.attachment_path,
+        attachment_mime=msg.attachment_mime,
+        attachment_size=msg.attachment_size,
     )
 
 

@@ -13,7 +13,7 @@ import os
 from datetime import datetime, UTC
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, HTTPException, Header, status
+from fastapi import Depends, FastAPI, File, HTTPException, Header, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -348,6 +348,30 @@ async def chat_with_agent(body: ChatRequest):
         return ChatResponse(response=output)
     except json_lib.JSONDecodeError:
         return ChatResponse(response=output)
+
+
+# ---------------------------------------------------------------------------
+# Chat File Upload
+# ---------------------------------------------------------------------------
+
+@app.post("/chat/upload", dependencies=[Depends(verify_token)])
+async def upload_chat_file(file: UploadFile = File(...)):
+    """Upload a file for chat attachments. Saves to ~/.openclaw/uploads/."""
+    import uuid as uuid_mod
+    uploads_dir = Path.home() / ".openclaw" / "uploads"
+    uploads_dir.mkdir(parents=True, exist_ok=True)
+
+    safe_name = file.filename or "attachment"
+    dest = uploads_dir / f"{uuid_mod.uuid4().hex[:8]}_{safe_name}"
+    content = await file.read()
+    dest.write_bytes(content)
+
+    return {
+        "path": str(dest),
+        "name": safe_name,
+        "mime": file.content_type or "application/octet-stream",
+        "size": len(content),
+    }
 
 
 # ---------------------------------------------------------------------------

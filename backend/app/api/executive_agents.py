@@ -82,6 +82,7 @@ async def bind_executive_agent(
         executive_role=body.executive_role,
         role_description=body.role_description,
         avatar_emoji=body.avatar_emoji,
+        persona_name=body.persona_name,
         status="bound",
     )
     session.add(agent)
@@ -124,6 +125,7 @@ async def seed_executive_team(
         {
             "openclaw_agent_id": "main",
             "display_name": "Mario",
+            "persona_name": "Mario",
             "executive_role": "Crew Captain",
             "avatar_emoji": "🍄",
             "role_description": "Front door and orchestrator for Michael's full agent bench. Connects dots across company, academic, and life lanes; delegates cleanly; synthesizes; protects follow-through.",
@@ -131,6 +133,7 @@ async def seed_executive_team(
         {
             "openclaw_agent_id": "sales",
             "display_name": "Sales (Piper)",
+            "persona_name": "Piper",
             "executive_role": "Revenue Captain",
             "avatar_emoji": "💼",
             "role_description": "Sales execution specialist focused on pipeline truth, meeting prep, follow-up discipline, commercial signal, and deal momentum.",
@@ -138,6 +141,7 @@ async def seed_executive_team(
         {
             "openclaw_agent_id": "fundraising",
             "display_name": "Fundraising (Iris)",
+            "persona_name": "Iris",
             "executive_role": "Fundraising Chief of Staff",
             "avatar_emoji": "📈",
             "role_description": "Investor readiness specialist focused on investor threads, diligence completeness, narrative coherence, and raise-readiness.",
@@ -145,6 +149,7 @@ async def seed_executive_team(
         {
             "openclaw_agent_id": "people",
             "display_name": "People (June)",
+            "persona_name": "June",
             "executive_role": "People Steward",
             "avatar_emoji": "🤝",
             "role_description": "People and hiring operator focused on candidate momentum, interview prep, onboarding discipline, and humane process quality.",
@@ -152,6 +157,7 @@ async def seed_executive_team(
         {
             "openclaw_agent_id": "strategy",
             "display_name": "Strategy (Atlas)",
+            "persona_name": "Atlas",
             "executive_role": "Strategy Cartographer",
             "avatar_emoji": "🧭",
             "role_description": "Strategy specialist focused on decision framing, board readiness, cross-functional patterns, and risk clarity.",
@@ -159,6 +165,7 @@ async def seed_executive_team(
         {
             "openclaw_agent_id": "dcu",
             "display_name": "DCU (Finch)",
+            "persona_name": "Finch",
             "executive_role": "Academic Steward",
             "avatar_emoji": "🎓",
             "role_description": "DCU/academic lane specialist for professor inbox, taught-module admin, supervision visibility, deadlines, and clean academic follow-through.",
@@ -166,6 +173,7 @@ async def seed_executive_team(
         {
             "openclaw_agent_id": "life-admin",
             "display_name": "Life (Hazel)",
+            "persona_name": "Hazel",
             "executive_role": "Life Concierge",
             "avatar_emoji": "🏡",
             "role_description": "Personal life-admin and logistics specialist focused on reminders, scheduling friction, errands, travel, and household/admin tidiness.",
@@ -179,9 +187,16 @@ async def seed_executive_team(
             openclaw_agent_id=defn["openclaw_agent_id"],
         ).first(session)
         if existing:
+            updated = False
             # Update role_description if it was empty
             if not existing.role_description and defn.get("role_description"):
                 existing.role_description = defn["role_description"]
+                updated = True
+            # Populate persona_name if missing
+            if not existing.persona_name and defn.get("persona_name"):
+                existing.persona_name = defn["persona_name"]
+                updated = True
+            if updated:
                 existing.updated_at = utcnow()
                 session.add(existing)
             created.append(existing)
@@ -251,6 +266,7 @@ async def create_executive_agent(
         executive_role=body.executive_role,
         role_description=body.role_description,
         avatar_emoji=body.avatar_emoji,
+        persona_name=body.persona_name,
         agent_type=body.agent_type,
         parent_agent_id=body.parent_agent_id,
         sidebar_visible=(body.agent_type == "primary"),

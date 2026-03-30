@@ -35,6 +35,7 @@ export interface ExecutiveAgent {
   executive_role: string;
   role_description: string | null;
   avatar_emoji: string | null;
+  persona_name: string | null;
   agent_type: string; // "primary" | "helper"
   parent_agent_id: string | null;
   sidebar_visible: boolean;
@@ -226,6 +227,10 @@ export interface ThreadMessage {
   role: string;
   content: string;
   created_at: string;
+  attachment_name?: string | null;
+  attachment_path?: string | null;
+  attachment_mime?: string | null;
+  attachment_size?: number | null;
 }
 
 // ─── Agent Files Types ───────────────────────────────────────────────
@@ -499,6 +504,24 @@ export const api = {
         method: "PATCH",
         body: JSON.stringify(data),
       }),
+    upload: async (threadId: string, file: File, caption?: string): Promise<ThreadMessage> => {
+      const formData = new FormData();
+      formData.append("file", file);
+      if (caption) formData.append("caption", caption);
+      const base = getApiBaseUrl();
+      const headers: Record<string, string> = {};
+      if (isLocalAuthMode()) {
+        const token = getLocalAuthToken();
+        if (token) headers["Authorization"] = `Bearer ${token}`;
+      }
+      const resp = await fetch(`${base}/api/v1/chat-threads/${threadId}/upload`, {
+        method: "POST",
+        headers,
+        body: formData,
+      });
+      if (!resp.ok) throw new Error(`Upload failed: ${resp.status}`);
+      return resp.json();
+    },
   },
 
   schedules: {

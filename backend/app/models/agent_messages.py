@@ -24,4 +24,10 @@ class AgentMessage(QueryModel, table=True):
     role: str = Field(index=True)  # user / agent / system
     content: str = Field(sa_column=Column(Text))
 
+    # Attachments (optional)
+    attachment_name: str | None = Field(default=None)
+    attachment_path: str | None = Field(default=None)  # path on bridge filesystem
+    attachment_mime: str | None = Field(default=None)
+    attachment_size: int | None = Field(default=None)
+
     created_at: datetime = Field(default_factory=utcnow)

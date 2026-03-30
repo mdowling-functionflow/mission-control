@@ -27,6 +27,7 @@ class ExecutiveAgent(QueryModel, table=True):
     executive_role: str  # e.g. "Head of Sales"
     role_description: str | None = Field(default=None, sa_column=Column(Text))
     avatar_emoji: str | None = Field(default=None)
+    persona_name: str | None = Field(default=None)  # e.g. "Piper" — friendly identity name
 
     # Agent hierarchy
     agent_type: str = Field(default="primary", index=True)  # primary / helper

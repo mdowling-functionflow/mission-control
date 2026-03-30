@@ -243,6 +243,7 @@ function CreateAgentForm({ primaryAgents, onSubmit }: {
   const [slug, setSlug] = useState("");
   const [role, setRole] = useState("");
   const [emoji, setEmoji] = useState("🤖");
+  const [persona, setPersona] = useState("");
   const [type, setType] = useState<"primary" | "helper">("helper");
   const [parentId, setParentId] = useState("");
 
@@ -271,11 +272,16 @@ function CreateAgentForm({ primaryAgents, onSubmit }: {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-3 gap-3">
         <div>
           <label className="text-[10px] font-semibold uppercase tracking-widest block mb-1" style={{ color: "var(--text-quiet)" }}>Role / Purpose</label>
           <input className="w-full rounded-lg border px-3 py-2 text-sm" style={{ borderColor: "var(--border)", color: "var(--text)" }}
-            placeholder="Research and analysis specialist" value={role} onChange={(e) => setRole(e.target.value)} />
+            placeholder="Research specialist" value={role} onChange={(e) => setRole(e.target.value)} />
+        </div>
+        <div>
+          <label className="text-[10px] font-semibold uppercase tracking-widest block mb-1" style={{ color: "var(--text-quiet)" }}>Persona Name</label>
+          <input className="w-full rounded-lg border px-3 py-2 text-sm" style={{ borderColor: "var(--border)", color: "var(--text)" }}
+            placeholder="Atlas" value={persona} onChange={(e) => setPersona(e.target.value)} />
         </div>
         <div>
           <label className="text-[10px] font-semibold uppercase tracking-widest block mb-1" style={{ color: "var(--text-quiet)" }}>Emoji</label>
@@ -324,10 +330,11 @@ function CreateAgentForm({ primaryAgents, onSubmit }: {
 
       <button
         onClick={() => onSubmit({
-          display_name: name,
+          display_name: persona.trim() ? `${name} (${persona.trim()})` : name,
           openclaw_agent_id: slug,
           executive_role: role,
           avatar_emoji: emoji || "🤖",
+          persona_name: persona.trim() || undefined,
           agent_type: type,
           ...(type === "helper" && parentId ? { parent_agent_id: parentId } : {}),
         })}

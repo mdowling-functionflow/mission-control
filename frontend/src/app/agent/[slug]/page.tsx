@@ -17,6 +17,7 @@ import {
   Lightbulb,
   ListTodo,
   MessageSquare,
+  Paperclip,
   Plus,
   Send,
   Square,
@@ -26,6 +27,7 @@ import {
 } from "lucide-react";
 
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { SignedIn, SignedOut } from "@/auth/clerk";
 import { DashboardPageLayout } from "@/components/templates/DashboardPageLayout";
 import { cn } from "@/lib/utils";
@@ -185,6 +187,9 @@ function ChatTab({ agent }: { agent: ExecutiveAgent }) {
   const [loading, setLoading] = useState(true);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
+  const [fastPoll, setFastPoll] = useState(false);
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // Load threads
@@ -205,12 +210,18 @@ function ChatTab({ agent }: { agent: ExecutiveAgent }) {
         scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
       });
     }).catch(console.error);
-    // Poll for new messages (agent responses) — but don't auto-scroll
+    // Adaptive polling: 1s when waiting for response, 3s otherwise
     const iv = setInterval(() => {
-      api.chatThreads.messages(activeThreadId).then(setMessages).catch(console.error);
-    }, 8_000);
+      api.chatThreads.messages(activeThreadId).then((msgs) => {
+        setMessages(msgs);
+        // Auto-stop fast polling when agent responds
+        if (fastPoll && msgs.length > 0 && msgs[msgs.length - 1].role !== "user") {
+          setFastPoll(false);
+        }
+      }).catch(console.error);
+    }, fastPoll ? 1_000 : 3_000);
     return () => clearInterval(iv);
-  }, [activeThreadId]);
+  }, [activeThreadId, fastPoll]);
 
   // Refresh thread list periodically
   useEffect(() => {
@@ -232,8 +243,10 @@ function ChatTab({ agent }: { agent: ExecutiveAgent }) {
 
   const handleSend = async () => {
     const text = input.trim();
-    if (!text || sending) return;
+    if ((!text && !pendingFile) || sending) return;
     setInput("");
+    const fileToUpload = pendingFile;
+    setPendingFile(null);
     setSending(true);
     try {
       let threadId = activeThreadId;
@@ -244,8 +257,17 @@ function ChatTab({ agent }: { agent: ExecutiveAgent }) {
         setActiveThreadId(thread.id);
         threadId = thread.id;
       }
-      const msg = await api.chatThreads.send(threadId, text);
-      setMessages((prev) => [...prev, msg]);
+      // Upload file if attached
+      if (fileToUpload) {
+        const uploadMsg = await api.chatThreads.upload(threadId, fileToUpload, text || undefined);
+        setMessages((prev) => [...prev, uploadMsg]);
+      } else {
+        const msg = await api.chatThreads.send(threadId, text);
+        setMessages((prev) => [...prev, msg]);
+      }
+      // Start fast polling to pick up agent response quickly
+      setFastPoll(true);
+      setTimeout(() => setFastPoll(false), 30_000);
       api.chatThreads.list(agent.id).then(setThreads).catch(console.error);
       // Scroll to bottom after sending
       requestAnimationFrame(() => {
@@ -425,6 +447,13 @@ function ChatTab({ agent }: { agent: ExecutiveAgent }) {
                   /* User message — indented, subtle emphasis */
                   <div className="ml-8 rounded-xl px-4 py-3 text-[13px] font-medium" style={{ background: "var(--surface-muted)", color: "var(--text)" }}>
                     <p className="whitespace-pre-wrap">{m.content}</p>
+                    {m.attachment_name && (
+                      <div className="flex items-center gap-1.5 mt-2 text-[11px]" style={{ color: "var(--text-muted)" }}>
+                        <Paperclip className="h-3 w-3" />
+                        <span>{m.attachment_name}</span>
+                        {m.attachment_size && <span>({(m.attachment_size / 1024).toFixed(0)}KB)</span>}
+                      </div>
+                    )}
                   </div>
                 ) : (
                   /* Agent response — clean text with markdown */
@@ -432,7 +461,7 @@ function ChatTab({ agent }: { agent: ExecutiveAgent }) {
                     <div className="flex items-start gap-2">
                       <span className="mt-0.5 text-sm shrink-0">{agent.avatar_emoji || "🤖"}</span>
                       <div className="prose prose-sm prose-slate dark:prose-invert max-w-none text-[13px]" style={{ color: "var(--text)" }}>
-                        <ReactMarkdown>{m.content}</ReactMarkdown>
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
                       </div>
                     </div>
                   </div>
@@ -491,14 +520,46 @@ function ChatTab({ agent }: { agent: ExecutiveAgent }) {
           )}
 
           <div className="max-w-3xl mx-auto px-6 py-3">
+            {/* File attachment chip */}
+            {pendingFile && (
+              <div className="flex items-center gap-2 mb-2 px-1">
+                <div className="flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-[11px]" style={{ borderColor: "var(--border)", background: "var(--surface-muted)" }}>
+                  <Paperclip className="h-3 w-3" style={{ color: "var(--text-quiet)" }} />
+                  <span className="truncate max-w-[200px]" style={{ color: "var(--text)" }}>{pendingFile.name}</span>
+                  <span style={{ color: "var(--text-quiet)" }}>({(pendingFile.size / 1024).toFixed(0)}KB)</span>
+                  <button onClick={() => setPendingFile(null)} className="ml-1" style={{ color: "var(--text-quiet)" }}>
+                    <X className="h-3 w-3" />
+                  </button>
+                </div>
+              </div>
+            )}
             <div className="flex items-end gap-2">
+              {/* Hidden file input */}
+              <input
+                ref={fileInputRef}
+                type="file"
+                className="hidden"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) setPendingFile(f);
+                  e.target.value = "";
+                }}
+              />
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="rounded-xl p-2.5 transition-fast hover:bg-[color:var(--surface-muted)]"
+                style={{ color: "var(--text-quiet)" }}
+                title="Attach file"
+              >
+                <Paperclip className="h-4 w-4" />
+              </button>
               <div className="flex-1 rounded-xl border overflow-hidden" style={{ borderColor: "var(--border)", background: "var(--bg)" }}>
                 <textarea
                   ref={textareaRef}
                   className="w-full resize-none px-4 py-2.5 text-[13px] bg-transparent focus:outline-none"
                   style={{ color: "var(--text)", maxHeight: "200px" }}
                   rows={1}
-                  placeholder={`Message ${agent.display_name}...`}
+                  placeholder={`Message ${agent.persona_name || agent.display_name}...`}
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   onKeyDown={(e) => {
@@ -516,7 +577,7 @@ function ChatTab({ agent }: { agent: ExecutiveAgent }) {
               </div>
               <button
                 onClick={handleSend}
-                disabled={!input.trim() || sending}
+                disabled={(!input.trim() && !pendingFile) || sending}
                 className="rounded-xl p-2.5 transition-fast disabled:opacity-20"
                 style={{ color: "var(--accent)" }}
                 title="Send (Enter)"

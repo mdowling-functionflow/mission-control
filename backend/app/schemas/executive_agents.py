@@ -16,6 +16,7 @@ class ExecutiveAgentBind(SQLModel):
     executive_role: str
     role_description: str | None = None
     avatar_emoji: str | None = None
+    persona_name: str | None = None
 
 
 class ExecutiveAgentCreate(SQLModel):
@@ -26,6 +27,7 @@ class ExecutiveAgentCreate(SQLModel):
     executive_role: str
     role_description: str | None = None
     avatar_emoji: str | None = None
+    persona_name: str | None = None
     agent_type: str = "primary"  # primary / helper
     parent_agent_id: UUID | None = None  # required if helper
 
@@ -37,6 +39,7 @@ class ExecutiveAgentUpdate(SQLModel):
     executive_role: str | None = None
     role_description: str | None = None
     avatar_emoji: str | None = None
+    persona_name: str | None = None
     current_focus: str | None = None
     current_risk: str | None = None
     status: str | None = None
@@ -56,6 +59,7 @@ class ExecutiveAgentRead(SQLModel):
     executive_role: str
     role_description: str | None = None
     avatar_emoji: str | None = None
+    persona_name: str | None = None
     agent_type: str = "primary"
     parent_agent_id: UUID | None = None
     sidebar_visible: bool = True
