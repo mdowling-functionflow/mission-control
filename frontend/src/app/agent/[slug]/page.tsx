@@ -19,6 +19,7 @@ import {
   MessageSquare,
   Plus,
   Send,
+  Square,
   Users,
   X,
   XCircle,
@@ -371,16 +372,14 @@ function ChatTab({ agent }: { agent: ExecutiveAgent }) {
               <button
                 onClick={(e) => {
                   e.stopPropagation();
-                  if (confirm("Delete this conversation?")) {
-                    api.chatThreads.update(t.id, { is_active: false }).then(() => {
-                      setThreads((prev) => prev.filter((x) => x.id !== t.id));
-                      if (activeThreadId === t.id) {
-                        const remaining = threads.filter((x) => x.id !== t.id);
-                        setActiveThreadId(remaining.length > 0 ? remaining[0].id : null);
-                        setMessages([]);
-                      }
-                    }).catch(console.error);
-                  }
+                  api.chatThreads.update(t.id, { is_active: false }).then(() => {
+                    setThreads((prev) => prev.filter((x) => x.id !== t.id));
+                    if (activeThreadId === t.id) {
+                      const remaining = threads.filter((x) => x.id !== t.id);
+                      setActiveThreadId(remaining.length > 0 ? remaining[0].id : null);
+                      setMessages([]);
+                    }
+                  }).catch(console.error);
                 }}
                 className="opacity-0 group-hover:opacity-100 shrink-0 p-1.5 mr-1 rounded transition-fast hover:bg-red-50 dark:hover:bg-red-950/20"
                 style={{ color: "var(--danger)" }}
@@ -423,8 +422,8 @@ function ChatTab({ agent }: { agent: ExecutiveAgent }) {
                     <span className="text-[11px] italic" style={{ color: "var(--text-quiet)" }}>{m.content}</span>
                   </div>
                 ) : m.role === "user" ? (
-                  /* User message — Claude Code style: shaded card, full width */
-                  <div className="rounded-xl px-4 py-3 text-[13px]" style={{ background: "var(--surface-muted)", color: "var(--text)" }}>
+                  /* User message — indented, subtle emphasis */
+                  <div className="ml-8 rounded-xl px-4 py-3 text-[13px] font-medium" style={{ background: "var(--surface-muted)", color: "var(--text)" }}>
                     <p className="whitespace-pre-wrap">{m.content}</p>
                   </div>
                 ) : (
@@ -440,15 +439,30 @@ function ChatTab({ agent }: { agent: ExecutiveAgent }) {
                 )}
               </div>
             ))}
-            {/* Typing indicator */}
+            {/* Typing indicator + stop button */}
             {messages.length > 0 && messages[messages.length - 1].role === "user" && (
-              <div className="flex items-center gap-2 px-1 py-2">
+              <div className="flex items-center gap-3 px-1 py-2">
                 <span className="text-sm">{agent.avatar_emoji || "🤖"}</span>
                 <div className="flex gap-1">
                   <span className="h-1.5 w-1.5 rounded-full animate-pulse" style={{ background: "var(--text-quiet)", animationDelay: "0ms" }} />
                   <span className="h-1.5 w-1.5 rounded-full animate-pulse" style={{ background: "var(--text-quiet)", animationDelay: "200ms" }} />
                   <span className="h-1.5 w-1.5 rounded-full animate-pulse" style={{ background: "var(--text-quiet)", animationDelay: "400ms" }} />
                 </div>
+                <button
+                  onClick={() => {
+                    setMessages((prev) => [...prev, {
+                      id: `stop-${Date.now()}`,
+                      role: "system",
+                      content: "Generation stopped.",
+                      created_at: new Date().toISOString(),
+                    }]);
+                  }}
+                  className="flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-[11px] font-medium transition-fast hover:bg-[color:var(--surface-muted)]"
+                  style={{ borderColor: "var(--border)", color: "var(--text-muted)" }}
+                >
+                  <Square className="h-3 w-3" />
+                  Stop
+                </button>
               </div>
             )}
           </>
