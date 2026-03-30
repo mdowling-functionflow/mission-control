@@ -520,70 +520,77 @@ function ChatTab({ agent }: { agent: ExecutiveAgent }) {
           )}
 
           <div className="max-w-3xl mx-auto px-6 py-3">
-            {/* File attachment chip */}
-            {pendingFile && (
-              <div className="flex items-center gap-2 mb-2 px-1">
-                <div className="flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-[11px]" style={{ borderColor: "var(--border)", background: "var(--surface-muted)" }}>
-                  <Paperclip className="h-3 w-3" style={{ color: "var(--text-quiet)" }} />
-                  <span className="truncate max-w-[200px]" style={{ color: "var(--text)" }}>{pendingFile.name}</span>
-                  <span style={{ color: "var(--text-quiet)" }}>({(pendingFile.size / 1024).toFixed(0)}KB)</span>
-                  <button onClick={() => setPendingFile(null)} className="ml-1" style={{ color: "var(--text-quiet)" }}>
-                    <X className="h-3 w-3" />
-                  </button>
+            {/* Hidden file input */}
+            <input
+              ref={fileInputRef}
+              type="file"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) setPendingFile(f);
+                e.target.value = "";
+              }}
+            />
+            {/* Claude-style: single rounded box with textarea + toolbar inside */}
+            <div className="rounded-2xl border" style={{ borderColor: "var(--border)", background: "var(--bg)" }}>
+              {/* File attachment chip — inside the box */}
+              {pendingFile && (
+                <div className="flex items-center gap-2 px-4 pt-3">
+                  <div className="flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-[11px]" style={{ borderColor: "var(--border)", background: "var(--surface-muted)" }}>
+                    <Paperclip className="h-3 w-3" style={{ color: "var(--text-quiet)" }} />
+                    <span className="truncate max-w-[200px]" style={{ color: "var(--text)" }}>{pendingFile.name}</span>
+                    <span style={{ color: "var(--text-quiet)" }}>({(pendingFile.size / 1024).toFixed(0)}KB)</span>
+                    <button onClick={() => setPendingFile(null)} className="ml-1" style={{ color: "var(--text-quiet)" }}>
+                      <X className="h-3 w-3" />
+                    </button>
+                  </div>
                 </div>
-              </div>
-            )}
-            <div className="flex items-end gap-2">
-              {/* Hidden file input */}
-              <input
-                ref={fileInputRef}
-                type="file"
-                className="hidden"
-                onChange={(e) => {
-                  const f = e.target.files?.[0];
-                  if (f) setPendingFile(f);
-                  e.target.value = "";
-                }}
-              />
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                className="rounded-xl p-2.5 transition-fast hover:bg-[color:var(--surface-muted)]"
-                style={{ color: "var(--text-quiet)" }}
-                title="Attach file"
-              >
-                <Paperclip className="h-4 w-4" />
-              </button>
-              <div className="flex-1 rounded-xl border overflow-hidden" style={{ borderColor: "var(--border)", background: "var(--bg)" }}>
-                <textarea
-                  ref={textareaRef}
-                  className="w-full resize-none px-4 py-2.5 text-[13px] bg-transparent focus:outline-none"
-                  style={{ color: "var(--text)", maxHeight: "200px" }}
-                  rows={1}
-                  placeholder={`Message ${agent.persona_name || agent.display_name}...`}
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && !e.shiftKey) {
-                      e.preventDefault();
-                      if (showSlashMenu && filteredCmds.length > 0) {
-                        handleSlashCommand(filteredCmds[0].cmd);
-                      } else {
-                        handleSend();
-                      }
+              )}
+              {/* Textarea */}
+              <textarea
+                ref={textareaRef}
+                className="w-full resize-none px-4 pt-3 pb-1 text-[13px] bg-transparent focus:outline-none"
+                style={{ color: "var(--text)", maxHeight: "200px" }}
+                rows={1}
+                placeholder={`Message ${agent.persona_name || agent.display_name}...`}
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    if (showSlashMenu && filteredCmds.length > 0) {
+                      handleSlashCommand(filteredCmds[0].cmd);
+                    } else {
+                      handleSend();
                     }
-                  }}
-                  autoFocus
-                />
+                  }
+                }}
+                autoFocus
+              />
+              {/* Bottom toolbar — inside the box */}
+              <div className="flex items-center justify-between px-3 pb-2 pt-1">
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  className="rounded-lg p-1.5 transition-fast hover:bg-[color:var(--surface-muted)]"
+                  style={{ color: "var(--text-quiet)" }}
+                  title="Attach file"
+                >
+                  <Plus className="h-4 w-4" />
+                </button>
+                <button
+                  onClick={handleSend}
+                  disabled={(!input.trim() && !pendingFile) || sending}
+                  className={cn(
+                    "rounded-lg p-1.5 transition-fast",
+                    (input.trim() || pendingFile) && !sending
+                      ? "bg-[color:var(--accent)] text-white"
+                      : "text-[color:var(--text-quiet)] opacity-30",
+                  )}
+                  title="Send (Enter)"
+                >
+                  <ArrowRight className="h-4 w-4" />
+                </button>
               </div>
-              <button
-                onClick={handleSend}
-                disabled={(!input.trim() && !pendingFile) || sending}
-                className="rounded-xl p-2.5 transition-fast disabled:opacity-20"
-                style={{ color: "var(--accent)" }}
-                title="Send (Enter)"
-              >
-                <Send className="h-4 w-4" />
-              </button>
             </div>
           </div>
         </div>
