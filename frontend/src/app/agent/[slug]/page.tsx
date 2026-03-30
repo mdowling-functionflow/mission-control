@@ -35,18 +35,19 @@ import {
   type AgentImprovement,
   type ComposedTask,
   type AgentFileInfo,
+  type CronJob,
   type InstalledSkill,
   type DocumentItem,
   type ChatMessage,
 } from "@/lib/executive-api";
 
-type Tab = "chat" | "agent" | "skills" | "tasks" | "knowledge" | "improvements" | "approvals" | "review";
+type Tab = "chat" | "agent" | "skills" | "schedules" | "knowledge" | "improvements" | "approvals" | "review";
 
 const BASE_TABS: Array<{ key: Tab; label: string; icon: typeof Activity }> = [
   { key: "chat", label: "Chat", icon: MessageSquare },
   { key: "agent", label: "Agent", icon: Activity },
   { key: "skills", label: "Skills", icon: FileCode },
-  { key: "tasks", label: "Tasks", icon: ListTodo },
+  { key: "schedules", label: "Schedules", icon: Clock },
   { key: "knowledge", label: "Knowledge", icon: FileText },
   { key: "improvements", label: "Improvements", icon: Lightbulb },
 ];
@@ -159,7 +160,7 @@ export default function AgentWorkspacePage() {
             {activeTab === "chat" && <ChatTab agent={agent} />}
             {activeTab === "agent" && <AgentTab agent={agent} slug={slug} />}
             {activeTab === "skills" && <SkillsTab agentId={agent.id} />}
-            {activeTab === "tasks" && <TasksTab agentId={agent.id} />}
+            {activeTab === "schedules" && <SchedulesTab agentSlug={slug} />}
             {activeTab === "knowledge" && <KnowledgeTab agentId={agent.id} />}
             {activeTab === "improvements" && <ImprovementsTab agentId={agent.id} />}
             {activeTab === "approvals" && <ApprovalsTab />}
@@ -664,43 +665,49 @@ function SkillRow({ skill, mapped, onToggle }: { skill: InstalledSkill; mapped: 
   );
 }
 
-function TasksTab({ agentId }: { agentId: string }) {
-  const [tasks, setTasks] = useState<ComposedTask[]>([]);
+function SchedulesTab({ agentSlug }: { agentSlug: string }) {
+  const [jobs, setJobs] = useState<CronJob[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    api.tasks.list().then((all) => {
-      const mine = all.filter((t) => t.assignments.some((a) => a.executive_agent_id === agentId));
-      setTasks(mine);
+    api.schedules.list().then((resp) => {
+      const all = resp.jobs || [];
+      const mine = all.filter((j) => j.agentId === agentSlug);
+      setJobs(mine);
     }).catch(console.error).finally(() => setLoading(false));
-  }, [agentId]);
+  }, [agentSlug]);
 
   if (loading) return <Spinner />;
-  if (tasks.length === 0) return <EmptyState text="No tasks assigned to this agent" />;
+  if (jobs.length === 0) return <EmptyState text="No schedules for this agent" />;
 
   return (
     <div className="space-y-2">
-      {tasks.map((task) => (
-        <Link
-          key={task.id}
-          href={`/tasks/${task.id}`}
-          className="flex items-center gap-3 rounded-xl border p-3 transition-smooth hover:shadow-elevation-2"
-          style={{ borderColor: "var(--border)", background: "var(--surface)" }}
+      {jobs.map((job) => (
+        <div
+          key={job.id}
+          className="flex items-center gap-3 rounded-xl border p-3"
+          style={{ borderColor: "var(--border)", background: "var(--surface)", opacity: job.enabled ? 1 : 0.5 }}
         >
-          <ListTodo className="h-4 w-4 shrink-0" style={{ color: "var(--text-quiet)" }} />
+          <Clock className="h-4 w-4 shrink-0" style={{ color: "var(--text-quiet)" }} />
           <div className="min-w-0 flex-1">
-            <p className="text-sm font-medium" style={{ color: "var(--text)" }}>{task.title}</p>
+            <p className="text-sm font-medium" style={{ color: "var(--text)" }}>{job.name}</p>
+            {job.description && <p className="text-xs truncate" style={{ color: "var(--text-muted)" }}>{job.description}</p>}
+            <p className="text-[11px] mt-0.5" style={{ color: "var(--text-quiet)" }}>
+              {job.schedule?.expr || job.schedule?.every || "No schedule"}
+              {job.schedule?.tz ? ` (${job.schedule.tz})` : ""}
+            </p>
           </div>
           <span className={cn(
-            "rounded-full px-1.5 py-0.5 text-[10px] font-medium",
-            task.status === "active" && "bg-blue-100 text-blue-700",
-            task.status === "in_progress" && "bg-amber-100 text-amber-700",
-            task.status === "completed" && "bg-emerald-100 text-emerald-700",
+            "rounded px-1.5 py-0.5 text-[10px] font-medium",
+            job.enabled ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400" : "bg-slate-100 text-slate-500",
           )}>
-            {task.status}
+            {job.enabled ? "Active" : "Disabled"}
           </span>
-        </Link>
+        </div>
       ))}
+      <Link href="/schedules" className="text-xs" style={{ color: "var(--accent)" }}>
+        Manage all schedules →
+      </Link>
     </div>
   );
 }

@@ -171,6 +171,39 @@ export interface AgentImprovement {
   created_at: string;
 }
 
+// ─── Schedule/Cron Types ─────────────────────────────────────────────
+
+export interface CronJob {
+  id: string;
+  agentId: string | null;
+  name: string;
+  description: string | null;
+  enabled: boolean;
+  schedule: { kind: string; expr?: string; tz?: string; every?: string } | null;
+  payload: { kind: string; message?: string; model?: string; timeoutSeconds?: number; thinking?: string } | null;
+  delivery: { mode: string; channel?: string } | null;
+  createdAtMs: number;
+  updatedAtMs: number;
+}
+
+export interface CronListResponse {
+  jobs: CronJob[];
+}
+
+export interface ScheduleCreate {
+  name: string;
+  agent_id?: string;
+  cron_expr?: string;
+  every?: string;
+  message?: string;
+  description?: string;
+  tz?: string;
+  session?: string;
+  model?: string;
+  timeout_seconds?: number;
+  thinking?: string;
+}
+
 // ─── Agent Files Types ───────────────────────────────────────────────
 
 export interface AgentFileInfo {
@@ -397,6 +430,29 @@ export const api = {
         method: "PATCH",
         body: JSON.stringify(data),
       }),
+  },
+
+  schedules: {
+    list: () => execFetch<CronListResponse>("/api/v1/schedules"),
+    status: () => execFetch<Record<string, unknown>>("/api/v1/schedules/status"),
+    create: (data: ScheduleCreate) =>
+      execFetch<Record<string, unknown>>("/api/v1/schedules", {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+    edit: (jobId: string, data: Record<string, unknown>) =>
+      execFetch<Record<string, unknown>>(`/api/v1/schedules/${jobId}/edit`, {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+    remove: (jobId: string) =>
+      execFetch<void>(`/api/v1/schedules/${jobId}`, { method: "DELETE" }),
+    run: (jobId: string) =>
+      execFetch<Record<string, unknown>>(`/api/v1/schedules/${jobId}/run`, { method: "POST" }),
+    enable: (jobId: string) =>
+      execFetch<Record<string, unknown>>(`/api/v1/schedules/${jobId}/enable`, { method: "POST" }),
+    disable: (jobId: string) =>
+      execFetch<Record<string, unknown>>(`/api/v1/schedules/${jobId}/disable`, { method: "POST" }),
   },
 
   agentFiles: {

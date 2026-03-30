@@ -41,6 +41,7 @@ from app.api.global_approvals import router as global_approvals_router
 from app.api.skills_editor import router as skills_editor_router
 from app.api.improvements import router as improvements_router
 from app.api.overview import router as overview_router
+from app.api.schedules import router as schedules_router
 from app.api.weekly_reviews import router as weekly_reviews_router
 from app.core.config import settings
 from app.core.error_handling import install_error_handling
@@ -578,6 +579,7 @@ api_v1.include_router(executive_agents_router)
 api_v1.include_router(global_approvals_router)
 api_v1.include_router(improvements_router)
 api_v1.include_router(overview_router)
+api_v1.include_router(schedules_router)
 api_v1.include_router(skills_editor_router)
 api_v1.include_router(weekly_reviews_router)
 app.include_router(api_v1)

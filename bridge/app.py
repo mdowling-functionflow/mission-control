@@ -349,6 +349,195 @@ async def chat_with_agent(body: ChatRequest):
 
 
 # ---------------------------------------------------------------------------
+# Cron / Schedules — manage OpenClaw cron jobs via CLI
+# ---------------------------------------------------------------------------
+
+class CronJobCreate(BaseModel):
+    name: str
+    agent_id: str | None = None
+    cron_expr: str | None = None  # 5-field cron expression
+    every: str | None = None  # e.g. "10m", "1h"
+    message: str = ""
+    description: str | None = None
+    tz: str = "Europe/Dublin"
+    session: str = "isolated"
+    model: str | None = None
+    timeout_seconds: int | None = None
+    thinking: str | None = None
+
+
+class CronJobEdit(BaseModel):
+    name: str | None = None
+    cron_expr: str | None = None
+    every: str | None = None
+    message: str | None = None
+    description: str | None = None
+    tz: str | None = None
+    model: str | None = None
+    timeout_seconds: int | None = None
+    thinking: str | None = None
+    enabled: bool | None = None
+
+
+async def _run_cron_cmd(args: list[str], timeout: int = 30) -> dict | list | str:
+    """Run an openclaw cron command and return parsed JSON output."""
+    cmd = ["openclaw", "cron", *args, "--json"]
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+    except asyncio.TimeoutError:
+        raise HTTPException(status_code=504, detail="Cron command timed out")
+    except FileNotFoundError:
+        raise HTTPException(status_code=500, detail="openclaw CLI not found")
+
+    if proc.returncode != 0:
+        err = stderr.decode("utf-8", errors="replace").strip()
+        raise HTTPException(status_code=502, detail=err[:500] or "Cron command failed")
+
+    output = stdout.decode("utf-8", errors="replace").strip()
+    if not output:
+        return {}
+    try:
+        return json_lib.loads(output)
+    except json_lib.JSONDecodeError:
+        return output
+
+
+@app.get("/cron/list", dependencies=[Depends(verify_token)])
+async def cron_list():
+    """List all cron jobs."""
+    return await _run_cron_cmd(["list", "--all"])
+
+
+@app.get("/cron/status", dependencies=[Depends(verify_token)])
+async def cron_status():
+    """Get cron scheduler status."""
+    return await _run_cron_cmd(["status"])
+
+
+@app.post("/cron/add", dependencies=[Depends(verify_token)])
+async def cron_add(body: CronJobCreate):
+    """Create a new cron job."""
+    args = ["add", "--name", body.name]
+    if body.agent_id:
+        args += ["--agent", body.agent_id]
+    if body.cron_expr:
+        args += ["--cron", body.cron_expr]
+    if body.every:
+        args += ["--every", body.every]
+    if body.message:
+        args += ["--message", body.message]
+    if body.description:
+        args += ["--description", body.description]
+    if body.tz:
+        args += ["--tz", body.tz]
+    if body.session:
+        args += ["--session", body.session]
+    if body.model:
+        args += ["--model", body.model]
+    if body.timeout_seconds:
+        args += ["--timeout-seconds", str(body.timeout_seconds)]
+    if body.thinking:
+        args += ["--thinking", body.thinking]
+    return await _run_cron_cmd(args)
+
+
+@app.post("/cron/edit/{job_id}", dependencies=[Depends(verify_token)])
+async def cron_edit(job_id: str, body: CronJobEdit):
+    """Edit an existing cron job."""
+    args = ["edit", job_id]
+    if body.name:
+        args += ["--name", body.name]
+    if body.cron_expr:
+        args += ["--cron", body.cron_expr]
+    if body.every:
+        args += ["--every", body.every]
+    if body.message is not None:
+        args += ["--message", body.message]
+    if body.description is not None:
+        args += ["--description", body.description]
+    if body.tz:
+        args += ["--tz", body.tz]
+    if body.model:
+        args += ["--model", body.model]
+    if body.timeout_seconds:
+        args += ["--timeout-seconds", str(body.timeout_seconds)]
+    if body.thinking:
+        args += ["--thinking", body.thinking]
+    if body.enabled is True:
+        args += ["--enable"]
+    elif body.enabled is False:
+        args += ["--disable"]
+    return await _run_cron_cmd(args)
+
+
+@app.delete("/cron/remove/{job_id}", dependencies=[Depends(verify_token)])
+async def cron_remove(job_id: str):
+    """Remove a cron job."""
+    # rm doesn't support --json, use plain command
+    cmd = ["openclaw", "cron", "rm", job_id]
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=15)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    if proc.returncode != 0:
+        raise HTTPException(status_code=502, detail=stderr.decode()[:500])
+    return {"ok": True}
+
+
+@app.post("/cron/run/{job_id}", dependencies=[Depends(verify_token)])
+async def cron_run(job_id: str):
+    """Run a cron job now (debug/manual trigger)."""
+    return await _run_cron_cmd(["run", job_id], timeout=120)
+
+
+@app.post("/cron/enable/{job_id}", dependencies=[Depends(verify_token)])
+async def cron_enable(job_id: str):
+    """Enable a cron job."""
+    return await _run_cron_cmd(["edit", job_id, "--enable"])
+
+
+@app.post("/cron/disable/{job_id}", dependencies=[Depends(verify_token)])
+async def cron_disable(job_id: str):
+    """Disable a cron job."""
+    return await _run_cron_cmd(["edit", job_id, "--disable"])
+
+
+@app.get("/cron/runs", dependencies=[Depends(verify_token)])
+async def cron_runs(job_id: str | None = None, limit: int = 50):
+    """Get cron run history."""
+    # runs command doesn't support --json well, try plain
+    cmd = ["openclaw", "cron", "runs"]
+    if job_id:
+        cmd += ["--id", job_id]
+    cmd += ["--limit", str(limit)]
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=30)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    output = stdout.decode("utf-8", errors="replace").strip()
+    try:
+        return json_lib.loads(output)
+    except json_lib.JSONDecodeError:
+        return {"raw": output}
+
+
+# Need json import for cron commands
+import json as json_lib
+import asyncio
+
+
+# ---------------------------------------------------------------------------
 # Agent Spec Files — read/write real agent workspace files
 # ---------------------------------------------------------------------------
 
