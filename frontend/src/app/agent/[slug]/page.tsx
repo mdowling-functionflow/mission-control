@@ -159,7 +159,7 @@ export default function AgentWorkspacePage() {
           </div>
 
           {/* Tab content — fills remaining space */}
-          <div className="flex-1 overflow-y-auto p-4">
+          <div className={cn("flex-1", activeTab === "chat" ? "overflow-hidden" : "overflow-y-auto p-4")}>
             {activeTab === "chat" && <ChatTab agent={agent} />}
             {activeTab === "agent" && <AgentTab agent={agent} slug={slug} />}
             {activeTab === "skills" && <SkillsTab agentId={agent.id} />}
@@ -323,49 +323,53 @@ function ChatTab({ agent }: { agent: ExecutiveAgent }) {
   };
 
   return (
-    <div className="flex flex-1 min-h-0">
-      {/* Thread sidebar */}
-      <div className="w-[180px] shrink-0 border-r flex flex-col" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
-        <button
-          onClick={handleNewChat}
-          className="flex items-center gap-1.5 m-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-fast"
-          style={{ background: "var(--accent-soft)", color: "var(--accent)" }}
-        >
-          <Plus className="h-3 w-3" /> New Chat
-        </button>
-        <div className="flex-1 overflow-y-auto">
+    <div className="flex h-full">
+      {/* ── Thread sidebar ── */}
+      <div className="w-[220px] shrink-0 border-r flex flex-col" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
+        <div className="p-3 pb-2">
+          <button
+            onClick={handleNewChat}
+            className="flex items-center gap-2 w-full rounded-lg px-3 py-2 text-xs font-medium transition-fast"
+            style={{ background: "var(--accent-soft)", color: "var(--accent)" }}
+          >
+            <Plus className="h-3.5 w-3.5" /> New session
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto px-2">
           {threads.map((t) => (
             <button
               key={t.id}
               onClick={() => setActiveThreadId(t.id)}
               className={cn(
-                "w-full text-left px-3 py-2 text-[11px] border-l-2 transition-fast",
+                "w-full text-left rounded-lg px-3 py-2 mb-0.5 text-[12px] transition-fast",
                 activeThreadId === t.id
-                  ? "border-[color:var(--accent)] bg-[color:var(--accent-muted)]"
-                  : "border-transparent hover:bg-[color:var(--surface-muted)]",
+                  ? "bg-[color:var(--surface-muted)]"
+                  : "hover:bg-[color:var(--surface-muted)]",
               )}
             >
-              <p className="font-medium truncate" style={{ color: activeThreadId === t.id ? "var(--accent)" : "var(--text)" }}>
-                {t.title || "New conversation"}
+              <p className="font-medium truncate" style={{ color: activeThreadId === t.id ? "var(--text)" : "var(--text-muted)" }}>
+                {t.title || "New session"}
               </p>
-              <p className="text-[10px] mt-0.5" style={{ color: "var(--text-quiet)" }}>
-                {t.message_count} msgs · {relTime(t.updated_at)}
+              <p className="text-[10px] mt-0.5 truncate" style={{ color: "var(--text-quiet)" }}>
+                {relTime(t.updated_at)}
               </p>
             </button>
           ))}
         </div>
       </div>
 
-      {/* Main chat area */}
-      <div className="flex-1 flex flex-col min-h-0">
-        {/* Messages */}
-        <div ref={scrollRef} className="flex-1 overflow-y-auto space-y-3 p-4 pb-2">
-          {loading ? <Spinner /> : !activeThreadId ? (
-            <div className="flex flex-col items-center justify-center h-full text-center">
-              <MessageSquare className="h-8 w-8 mb-2" style={{ color: "var(--text-quiet)" }} />
-              <p className="text-sm" style={{ color: "var(--text-muted)" }}>Click "New Chat" to start</p>
-            </div>
-          ) : messages.length === 0 ? (
+      {/* ── Main chat area ── */}
+      <div className="flex-1 flex flex-col min-w-0">
+        {/* Messages — only this part scrolls */}
+        <div ref={scrollRef} className="flex-1 overflow-y-auto">
+          <div className="max-w-3xl mx-auto px-6 py-4 space-y-4">
+            {loading ? <Spinner /> : !activeThreadId ? (
+              <div className="flex flex-col items-center justify-center h-[60vh] text-center">
+                <MessageSquare className="h-10 w-10 mb-3" style={{ color: "var(--text-quiet)" }} />
+                <p className="text-sm font-medium" style={{ color: "var(--text)" }}>Start a conversation</p>
+                <p className="text-xs mt-1" style={{ color: "var(--text-quiet)" }}>Click "New session" or type below</p>
+              </div>
+            ) : messages.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-center">
             <MessageSquare className="h-8 w-8 mb-2" style={{ color: "var(--text-quiet)" }} />
             <p className="text-sm" style={{ color: "var(--text-muted)" }}>
@@ -424,54 +428,65 @@ function ChatTab({ agent }: { agent: ExecutiveAgent }) {
               </div>
             )}
           </>
-        )}
-      </div>
-
-      {/* Slash command menu */}
-      {showSlashMenu && filteredCmds.length > 0 && (
-        <div className="border rounded-xl p-1 mb-2 shadow-elevation-2" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
-          {filteredCmds.map((c) => (
-            <button
-              key={c.cmd}
-              onClick={() => handleSlashCommand(c.cmd)}
-              className="flex items-center gap-3 w-full rounded-lg px-3 py-2 text-xs transition-fast hover:bg-[color:var(--surface-muted)]"
-            >
-              <span className="font-mono font-medium" style={{ color: "var(--accent)" }}>{c.cmd}</span>
-              <span style={{ color: "var(--text-muted)" }}>{c.desc}</span>
-            </button>
-          ))}
+            )}
+          </div>
         </div>
-      )}
 
-      {/* Input — fixed at bottom */}
-      <div className="border-t pt-3 flex gap-2 shrink-0" style={{ borderColor: "var(--border)" }}>
-        <input
-          ref={inputRef}
-          className="flex-1 rounded-xl border px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[color:var(--accent)]/20"
-          style={{ borderColor: "var(--border)", background: "var(--surface-muted)", color: "var(--text)" }}
-          placeholder={`Message ${agent.display_name}... (/ for commands)`}
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              if (showSlashMenu && filteredCmds.length > 0) {
-                handleSlashCommand(filteredCmds[0].cmd);
-              } else {
-                handleSend();
-              }
-            }
-          }}
-          autoFocus
-        />
-        <button
-          onClick={handleSend}
-          disabled={!input.trim() || sending || !activeThreadId}
-          className="rounded-xl p-2.5 bg-[color:var(--accent)] text-white disabled:opacity-30 transition-fast"
-        >
-          <Send className="h-4 w-4" />
-        </button>
-      </div>
+        {/* ── Input area — pinned to bottom, never moves ── */}
+        <div className="shrink-0 border-t relative" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
+          {/* Slash command menu — absolute positioned above input */}
+          {showSlashMenu && filteredCmds.length > 0 && (
+            <div className="absolute bottom-full left-0 right-0 mx-6 mb-1">
+              <div className="rounded-xl border p-1 shadow-elevation-3" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
+                {filteredCmds.map((c) => (
+                  <button
+                    key={c.cmd}
+                    onClick={() => handleSlashCommand(c.cmd)}
+                    className="flex items-center gap-3 w-full rounded-lg px-3 py-2 text-xs transition-fast hover:bg-[color:var(--surface-muted)]"
+                  >
+                    <span className="font-mono font-medium" style={{ color: "var(--accent)" }}>{c.cmd}</span>
+                    <span style={{ color: "var(--text-muted)" }}>{c.desc}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="max-w-3xl mx-auto px-6 py-3">
+            <div className="flex items-center gap-2">
+              <input
+                ref={inputRef}
+                className="flex-1 rounded-xl border px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[color:var(--accent)]/20"
+                style={{ borderColor: "var(--border)", background: "var(--bg)", color: "var(--text)" }}
+                placeholder={`Message ${agent.display_name}...`}
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    if (showSlashMenu && filteredCmds.length > 0) {
+                      handleSlashCommand(filteredCmds[0].cmd);
+                    } else {
+                      handleSend();
+                    }
+                  }
+                }}
+                autoFocus
+              />
+              <button
+                onClick={handleSend}
+                disabled={!input.trim() || sending || !activeThreadId}
+                className="rounded-xl p-2.5 bg-[color:var(--accent)] text-white disabled:opacity-30 transition-fast"
+                title="Send"
+              >
+                <Send className="h-4 w-4" />
+              </button>
+            </div>
+            <p className="text-[10px] mt-1 text-center" style={{ color: "var(--text-quiet)" }}>
+              Press Enter to send · Type / for commands
+            </p>
+          </div>
+        </div>
       </div>
     </div>
   );
