@@ -301,7 +301,7 @@ async def update_executive_agent(
     session: AsyncSession = SESSION_DEP,
     ctx: OrganizationContext = Depends(require_org_admin),
 ) -> ExecutiveAgent:
-    """Update an executive agent's display config or status."""
+    """Update an executive agent's display config or status. Syncs identity back to OpenClaw."""
     agent = await ExecutiveAgent.objects.filter_by(
         id=agent_id,
         organization_id=ctx.organization.id,
@@ -317,6 +317,12 @@ async def update_executive_agent(
     session.add(agent)
     await session.commit()
     await session.refresh(agent)
+
+    # Sync identity fields back to OpenClaw IDENTITY.md via bridge
+    identity_fields = {"display_name", "executive_role", "avatar_emoji", "persona_name", "role_description"}
+    if identity_fields & set(update_data.keys()):
+        await _sync_identity_to_openclaw(agent)
+
     return agent
 
 
@@ -666,3 +672,64 @@ def _find_agent_workspace(agent_id: str) -> str | None:
         if agent["id"] == agent_id:
             return agent.get("workspace")
     return None
+
+
+async def _sync_identity_to_openclaw(agent: ExecutiveAgent) -> None:
+    """Write agent identity back to OpenClaw's IDENTITY.md via bridge.
+
+    This ensures changes made in Mission Control propagate to the filesystem
+    so OpenClaw and Mission Control stay in sync.
+    """
+    from app.core.logging import get_logger
+    logger = get_logger(__name__)
+
+    # Build IDENTITY.md content from current agent state
+    lines = ["# IDENTITY.md - Who Am I?", ""]
+    lines.append(f"- **Name:** {agent.persona_name or agent.display_name}")
+    lines.append(f"- **Display Label:** {agent.display_name}")
+    if agent.executive_role:
+        lines.append(f"- **Role:** {agent.executive_role}")
+    if agent.avatar_emoji:
+        lines.append(f"- **Emoji:** {agent.avatar_emoji}")
+    if agent.role_description:
+        lines.append(f"- **Description:** {agent.role_description}")
+    lines.append("")
+
+    content = "\n".join(lines)
+
+    # Try to read existing IDENTITY.md first — preserve any extra content below
+    if settings.bridge_url:
+        import httpx
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                # Read existing content
+                read_resp = await client.get(
+                    f"{settings.bridge_url.rstrip('/')}/agent-files/{agent.openclaw_agent_id}/IDENTITY.md",
+                    headers={"X-Bridge-Token": settings.bridge_token},
+                )
+                if read_resp.status_code == 200:
+                    existing = read_resp.json().get("content", "")
+                    # Find where the structured header ends and preserve the rest
+                    # Look for a blank line after the last "- **" line
+                    existing_lines = existing.split("\n")
+                    extra_start = None
+                    for i, line in enumerate(existing_lines):
+                        if line.strip() == "" and i > 0 and not existing_lines[i - 1].startswith("- **"):
+                            if any(existing_lines[j].strip() for j in range(i + 1, len(existing_lines))):
+                                extra_start = i
+                                break
+                    if extra_start is not None:
+                        content = "\n".join(lines) + "\n".join(existing_lines[extra_start:])
+
+                # Write back
+                write_resp = await client.put(
+                    f"{settings.bridge_url.rstrip('/')}/agent-files/{agent.openclaw_agent_id}/IDENTITY.md",
+                    headers={"X-Bridge-Token": settings.bridge_token},
+                    json={"content": content},
+                )
+                if write_resp.status_code == 200:
+                    logger.info("identity.synced", agent=agent.openclaw_agent_id)
+                else:
+                    logger.warning("identity.sync_failed", agent=agent.openclaw_agent_id, status=write_resp.status_code)
+        except Exception as exc:
+            logger.warning("identity.sync_error", agent=agent.openclaw_agent_id, error=str(exc)[:200])
