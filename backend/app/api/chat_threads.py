@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Form, HTTPException, Query, UploadFile, status
 from sqlmodel import SQLModel, col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -324,17 +324,23 @@ async def send_thread_message(
 async def upload_thread_attachment(
     thread_id: UUID,
     file: UploadFile,
-    caption: str = "",
+    caption: str = Form(default=""),
     session: AsyncSession = SESSION_DEP,
     ctx: OrganizationContext = ORG_MEMBER_DEP,
 ) -> ThreadMessageRead:
-    """Upload a file attachment to a chat thread."""
+    """Upload a file attachment to a chat thread, then send to agent."""
+    from app.api.agent_chat import _exec_agent_cli
+
     thread = await ChatThread.objects.filter_by(
         id=thread_id,
         organization_id=ctx.organization.id,
     ).first(session)
     if not thread:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
+
+    exec_agent = await ExecutiveAgent.objects.by_id(thread.executive_agent_id).first(session)
+    if not exec_agent:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
 
     # Proxy upload to bridge
     attachment_meta = None
@@ -353,13 +359,18 @@ async def upload_thread_attachment(
         except Exception as exc:
             logger.warning("chat_thread.upload.failed", error=str(exc))
 
-    # Save message with attachment
+    # Build user message content — include both caption and file reference
+    user_text = caption.strip() if caption.strip() else ""
+    file_note = f"[Attached file: {file.filename}]"
+    content = f"{user_text}\n\n{file_note}" if user_text else file_note
+
+    # Save user message with attachment
     msg = AgentMessage(
         organization_id=ctx.organization.id,
         executive_agent_id=thread.executive_agent_id,
         thread_id=thread_id,
         role="user",
-        content=caption or f"📎 {file.filename}",
+        content=content,
         attachment_name=attachment_meta.get("name") if attachment_meta else file.filename,
         attachment_path=attachment_meta.get("path") if attachment_meta else None,
         attachment_mime=attachment_meta.get("mime") if attachment_meta else file.content_type,
@@ -370,6 +381,38 @@ async def upload_thread_attachment(
     session.add(thread)
     await session.commit()
     await session.refresh(msg)
+
+    # Execute agent with the message (including file context)
+    try:
+        agent_prompt = content
+        response_text = await _exec_agent_cli(
+            exec_agent.openclaw_agent_id,
+            agent_prompt,
+            session_id=thread.session_id,
+        )
+        if response_text:
+            agent_msg = AgentMessage(
+                organization_id=ctx.organization.id,
+                executive_agent_id=thread.executive_agent_id,
+                thread_id=thread_id,
+                role="agent",
+                content=response_text,
+            )
+            session.add(agent_msg)
+            thread.updated_at = utcnow()
+            session.add(thread)
+            await session.commit()
+    except Exception as exc:
+        logger.warning("chat_thread.upload_exec.failed", error=str(exc))
+        err_msg = AgentMessage(
+            organization_id=ctx.organization.id,
+            executive_agent_id=thread.executive_agent_id,
+            thread_id=thread_id,
+            role="system",
+            content=f"Could not reach {exec_agent.display_name}: {str(exc)[:200]}",
+        )
+        session.add(err_msg)
+        await session.commit()
 
     return ThreadMessageRead(
         id=str(msg.id),
