@@ -94,7 +94,7 @@ export default function DocsPage() {
             ) : (
               <Download className="h-3.5 w-3.5" />
             )}
-            {batchImporting ? "Importing..." : "Import All"}
+            {batchImporting ? "Syncing..." : "Sync Now"}
           </button>
           <button
             onClick={handleDiscover}

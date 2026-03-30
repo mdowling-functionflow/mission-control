@@ -7,11 +7,14 @@ import {
   ChevronDown,
   ChevronRight,
   Clock,
+  Edit3,
   FileText,
+  History,
   Pause,
   Play,
   Plus,
   RefreshCw,
+  Save,
   Trash2,
   X,
   Zap,
@@ -142,6 +145,7 @@ export default function SchedulesPage() {
                   onToggle={() => handleToggle(job)}
                   onRun={() => handleRun(job)}
                   onRemove={() => handleRemove(job)}
+                  onReload={loadData}
                 />
               ))}
             </div>
@@ -249,14 +253,34 @@ const TEMPLATES = [
 ];
 
 
-function JobCard({ job, agent, onToggle, onRun, onRemove }: {
+function JobCard({ job, agent, onToggle, onRun, onRemove, onReload }: {
   job: CronJob;
   agent?: ExecutiveAgent;
   onToggle: () => void;
   onRun: () => void;
   onRemove: () => void;
+  onReload?: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [editName, setEditName] = useState(job.name);
+  const [editCron, setEditCron] = useState(job.schedule?.expr || "");
+  const [editMessage, setEditMessage] = useState(job.payload?.message || "");
+  const [saving, setSaving] = useState(false);
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await api.schedules.edit(job.id, {
+        name: editName !== job.name ? editName : undefined,
+        cron_expr: editCron !== (job.schedule?.expr || "") ? editCron : undefined,
+        message: editMessage !== (job.payload?.message || "") ? editMessage : undefined,
+      });
+      setEditing(false);
+      onReload?.();
+    } catch (e) { console.error(e); }
+    finally { setSaving(false); }
+  };
 
   return (
     <div
@@ -298,26 +322,68 @@ function JobCard({ job, agent, onToggle, onRun, onRemove }: {
 
       {/* Expanded detail panel */}
       {expanded && (
-        <div className="border-t px-4 py-3 space-y-2 text-xs" style={{ borderColor: "var(--border)", background: "var(--surface-muted)" }}>
-          <div className="grid grid-cols-2 gap-x-6 gap-y-1.5">
-            <Detail label="Job ID" value={job.id} />
-            <Detail label="Agent" value={job.agentId || "default"} />
-            <Detail label="Schedule" value={job.schedule?.expr || job.schedule?.every || "—"} />
-            <Detail label="Timezone" value={job.schedule?.tz || "UTC"} />
-            <Detail label="Model" value={job.payload?.model || "default"} />
-            <Detail label="Timeout" value={job.payload?.timeoutSeconds ? `${job.payload.timeoutSeconds}s` : "default"} />
-            <Detail label="Thinking" value={job.payload?.thinking || "default"} />
-            <Detail label="Delivery" value={job.delivery?.mode || "none"} />
-            {job.delivery?.channel && <Detail label="Channel" value={job.delivery.channel} />}
+        <div className="border-t px-4 py-3 space-y-3 text-xs" style={{ borderColor: "var(--border)", background: "var(--surface-muted)" }}>
+          {/* Edit/view toggle */}
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: "var(--text-quiet)" }}>Configuration</span>
+            <button
+              onClick={() => setEditing(!editing)}
+              className="flex items-center gap-1 rounded px-2 py-0.5 text-[10px] font-medium transition-fast"
+              style={{ color: "var(--accent)" }}
+            >
+              {editing ? <X className="h-3 w-3" /> : <Edit3 className="h-3 w-3" />}
+              {editing ? "Cancel" : "Edit"}
+            </button>
           </div>
-          {job.payload?.message && (
-            <div className="mt-2">
-              <p className="text-[10px] font-semibold uppercase tracking-widest mb-1" style={{ color: "var(--text-quiet)" }}>Message / Prompt</p>
-              <pre className="text-[11px] whitespace-pre-wrap rounded-lg p-2 max-h-[200px] overflow-auto" style={{ background: "var(--surface)", color: "var(--text-muted)", border: "1px solid var(--border)" }}>
-                {job.payload.message}
-              </pre>
+
+          {editing ? (
+            <div className="space-y-2">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[10px] font-medium block mb-0.5" style={{ color: "var(--text-quiet)" }}>Name</label>
+                  <input className="w-full rounded border px-2 py-1 text-xs" style={{ borderColor: "var(--border)", color: "var(--text)" }}
+                    value={editName} onChange={(e) => setEditName(e.target.value)} />
+                </div>
+                <div>
+                  <label className="text-[10px] font-medium block mb-0.5" style={{ color: "var(--text-quiet)" }}>Cron Expression</label>
+                  <input className="w-full rounded border px-2 py-1 text-xs font-mono" style={{ borderColor: "var(--border)", color: "var(--text)" }}
+                    value={editCron} onChange={(e) => setEditCron(e.target.value)} />
+                </div>
+              </div>
+              <div>
+                <label className="text-[10px] font-medium block mb-0.5" style={{ color: "var(--text-quiet)" }}>Message / Prompt</label>
+                <textarea className="w-full rounded border px-2 py-1 text-xs font-mono" style={{ borderColor: "var(--border)", color: "var(--text)" }}
+                  rows={4} value={editMessage} onChange={(e) => setEditMessage(e.target.value)} />
+              </div>
+              <button onClick={handleSave} disabled={saving}
+                className="flex items-center gap-1 rounded bg-[color:var(--accent)] px-3 py-1 text-[10px] font-medium text-white disabled:opacity-40">
+                <Save className="h-3 w-3" /> {saving ? "Saving..." : "Save Changes"}
+              </button>
             </div>
+          ) : (
+            <>
+              <div className="grid grid-cols-2 gap-x-6 gap-y-1.5">
+                <Detail label="Job ID" value={job.id} />
+                <Detail label="Agent" value={job.agentId || "default"} />
+                <Detail label="Schedule" value={job.schedule?.expr || job.schedule?.every || "—"} />
+                <Detail label="Timezone" value={job.schedule?.tz || "UTC"} />
+                <Detail label="Model" value={job.payload?.model || "default"} />
+                <Detail label="Timeout" value={job.payload?.timeoutSeconds ? `${job.payload.timeoutSeconds}s` : "default"} />
+                <Detail label="Thinking" value={job.payload?.thinking || "default"} />
+                <Detail label="Delivery" value={job.delivery?.mode || "none"} />
+                {job.delivery?.channel && <Detail label="Channel" value={job.delivery.channel} />}
+              </div>
+              {job.payload?.message && (
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-widest mb-1" style={{ color: "var(--text-quiet)" }}>Message / Prompt</p>
+                  <pre className="text-[11px] whitespace-pre-wrap rounded-lg p-2 max-h-[200px] overflow-auto" style={{ background: "var(--surface)", color: "var(--text-muted)", border: "1px solid var(--border)" }}>
+                    {job.payload.message}
+                  </pre>
+                </div>
+              )}
+            </>
           )}
+
           <p className="text-[10px]" style={{ color: "var(--text-quiet)" }}>
             Created: {new Date(job.createdAtMs).toLocaleString()}
           </p>
