@@ -41,7 +41,7 @@ export default function OpsPage() {
   ];
 
   return (
-    <DashboardPageLayout signedOut={{ message: "Sign in to access Mission Control", forceRedirectUrl: "/home" }} title="Ops" description="Runtime operations and system health">
+    <DashboardPageLayout signedOut={{ message: "Sign in to access Mission Control", forceRedirectUrl: "/agent/main" }} title="Ops" description="Runtime operations and system health">
       <SignedOut>
         <div className="py-20 text-center text-slate-500">Sign in to continue.</div>
       </SignedOut>

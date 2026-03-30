@@ -40,7 +40,7 @@ export default function ApprovalsPage() {
 
   return (
     <DashboardPageLayout
-      signedOut={{ message: "Sign in to access Mission Control", forceRedirectUrl: "/home" }}
+      signedOut={{ message: "Sign in to access Mission Control", forceRedirectUrl: "/agent/main" }}
       title="Approvals"
       description="Review and decide on pending requests"
     >

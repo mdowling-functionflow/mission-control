@@ -61,7 +61,7 @@ export default function AgentDetailPage() {
 
   if (loading) {
     return (
-      <DashboardPageLayout signedOut={{ message: "Sign in to access Mission Control", forceRedirectUrl: "/home" }} title="Agent">
+      <DashboardPageLayout signedOut={{ message: "Sign in to access Mission Control", forceRedirectUrl: "/agent/main" }} title="Agent">
         <div className="flex items-center justify-center py-20">
           <div className="h-6 w-6 animate-spin rounded-full border-2 border-slate-300 border-t-slate-900" />
         </div>
@@ -71,7 +71,7 @@ export default function AgentDetailPage() {
 
   if (!agent) {
     return (
-      <DashboardPageLayout signedOut={{ message: "Sign in to access Mission Control", forceRedirectUrl: "/home" }} title="Agent not found">
+      <DashboardPageLayout signedOut={{ message: "Sign in to access Mission Control", forceRedirectUrl: "/agent/main" }} title="Agent not found">
         <div className="py-20 text-center text-slate-500">Agent not found.</div>
       </DashboardPageLayout>
     );
@@ -85,7 +85,7 @@ export default function AgentDetailPage() {
 
   return (
     <DashboardPageLayout
-      signedOut={{ message: "Sign in to access Mission Control", forceRedirectUrl: "/home" }}
+      signedOut={{ message: "Sign in to access Mission Control", forceRedirectUrl: "/agent/main" }}
       title={agent.display_name}
       description={agent.executive_role}
       headerActions={

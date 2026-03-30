@@ -34,7 +34,7 @@ export default function ExecutiveAgentsPage() {
   }, []);
 
   return (
-    <DashboardPageLayout signedOut={{ message: "Sign in to access Mission Control", forceRedirectUrl: "/home" }} title="Executive Team" description="Your AI executive agents">
+    <DashboardPageLayout signedOut={{ message: "Sign in to access Mission Control", forceRedirectUrl: "/agent/main" }} title="Executive Team" description="Your AI executive agents">
       <SignedOut>
         <div className="py-20 text-center text-slate-500">Sign in to continue.</div>
       </SignedOut>

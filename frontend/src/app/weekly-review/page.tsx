@@ -80,7 +80,7 @@ export default function WeeklyReviewPage() {
 
   return (
     <DashboardPageLayout
-      signedOut={{ message: "Sign in to access Mission Control", forceRedirectUrl: "/home" }}
+      signedOut={{ message: "Sign in to access Mission Control", forceRedirectUrl: "/agent/main" }}
       title="Weekly Review"
       description="Executive operating review"
     >

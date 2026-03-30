@@ -74,7 +74,7 @@ export default function AgentWorkspacePage() {
 
   if (loading) {
     return (
-      <DashboardPageLayout signedOut={{ message: "Sign in", forceRedirectUrl: "/home" }} title="Workspace">
+      <DashboardPageLayout signedOut={{ message: "Sign in", forceRedirectUrl: "/agent/main" }} title="Workspace">
         <div className="flex items-center justify-center py-20">
           <div className="h-6 w-6 animate-spin rounded-full border-2 border-slate-300 border-t-slate-900" />
         </div>
@@ -84,7 +84,7 @@ export default function AgentWorkspacePage() {
 
   if (!agent) {
     return (
-      <DashboardPageLayout signedOut={{ message: "Sign in", forceRedirectUrl: "/home" }} title="Agent not found">
+      <DashboardPageLayout signedOut={{ message: "Sign in", forceRedirectUrl: "/agent/main" }} title="Agent not found">
         <div className="py-20 text-center" style={{ color: "var(--text-muted)" }}>Agent not found.</div>
       </DashboardPageLayout>
     );

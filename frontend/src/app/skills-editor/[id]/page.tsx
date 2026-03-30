@@ -122,7 +122,7 @@ export default function SkillDetailPage() {
 
   if (loading) {
     return (
-      <DashboardPageLayout signedOut={{ message: "Sign in", forceRedirectUrl: "/home" }} title="Skill">
+      <DashboardPageLayout signedOut={{ message: "Sign in", forceRedirectUrl: "/agent/main" }} title="Skill">
         <div className="flex items-center justify-center py-20">
           <div className="h-6 w-6 animate-spin rounded-full border-2 border-slate-300 border-t-slate-900" />
         </div>
@@ -132,7 +132,7 @@ export default function SkillDetailPage() {
 
   if (!skill) {
     return (
-      <DashboardPageLayout signedOut={{ message: "Sign in", forceRedirectUrl: "/home" }} title="Skill not found">
+      <DashboardPageLayout signedOut={{ message: "Sign in", forceRedirectUrl: "/agent/main" }} title="Skill not found">
         <div className="py-20 text-center text-slate-500">Skill not found.</div>
       </DashboardPageLayout>
     );
@@ -144,7 +144,7 @@ export default function SkillDetailPage() {
 
   return (
     <DashboardPageLayout
-      signedOut={{ message: "Sign in", forceRedirectUrl: "/home" }}
+      signedOut={{ message: "Sign in", forceRedirectUrl: "/agent/main" }}
       title={skill.name}
       description="Skill editor"
       headerActions={

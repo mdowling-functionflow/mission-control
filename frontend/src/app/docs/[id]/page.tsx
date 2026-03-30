@@ -45,7 +45,7 @@ export default function DocDetailPage() {
 
   if (loading) {
     return (
-      <DashboardPageLayout signedOut={{ message: "Sign in", forceRedirectUrl: "/home" }} title="Document">
+      <DashboardPageLayout signedOut={{ message: "Sign in", forceRedirectUrl: "/agent/main" }} title="Document">
         <div className="flex items-center justify-center py-20">
           <div className="h-6 w-6 animate-spin rounded-full border-2 border-slate-300 border-t-slate-900" />
         </div>
@@ -55,7 +55,7 @@ export default function DocDetailPage() {
 
   if (!doc) {
     return (
-      <DashboardPageLayout signedOut={{ message: "Sign in", forceRedirectUrl: "/home" }} title="Not found">
+      <DashboardPageLayout signedOut={{ message: "Sign in", forceRedirectUrl: "/agent/main" }} title="Not found">
         <div className="py-20 text-center" style={{ color: "var(--text-muted)" }}>Document not found.</div>
       </DashboardPageLayout>
     );
@@ -63,7 +63,7 @@ export default function DocDetailPage() {
 
   return (
     <DashboardPageLayout
-      signedOut={{ message: "Sign in", forceRedirectUrl: "/home" }}
+      signedOut={{ message: "Sign in", forceRedirectUrl: "/agent/main" }}
       title={doc.title}
       description={doc.doc_type}
       headerActions={

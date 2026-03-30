@@ -109,7 +109,7 @@ export default function ImprovementsPage() {
 
   return (
     <DashboardPageLayout
-      signedOut={{ message: "Sign in to access Mission Control", forceRedirectUrl: "/home" }}
+      signedOut={{ message: "Sign in to access Mission Control", forceRedirectUrl: "/agent/main" }}
       title="Improvements"
       description="Agent-proposed workflow improvements"
       headerActions={
