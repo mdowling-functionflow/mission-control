@@ -441,6 +441,11 @@ export const api = {
         method: "PATCH",
         body: JSON.stringify(data),
       }),
+    audit: (agentId: string) =>
+      execFetch<{ document_id: string | null; document_title: string | null; improvements_created: number; agent_response: string | null }>(
+        `/api/v1/improvements/audit/${agentId}`,
+        { method: "POST" },
+      ),
   },
 
   schedules: {

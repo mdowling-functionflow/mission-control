@@ -3,7 +3,7 @@
 export const dynamic = "force-dynamic";
 
 import { useEffect, useState } from "react";
-import { Lightbulb, Plus, X } from "lucide-react";
+import { Lightbulb, Plus, Sparkles, X } from "lucide-react";
 
 import { SignedIn, SignedOut } from "@/auth/clerk";
 import { DashboardPageLayout } from "@/components/templates/DashboardPageLayout";
@@ -50,6 +50,19 @@ export default function ImprovementsPage() {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<string>("all");
   const [showForm, setShowForm] = useState(false);
+  const [auditing, setAuditing] = useState<string | null>(null); // agent id being audited
+  const [auditResult, setAuditResult] = useState<{ improvements_created: number; document_title: string | null } | null>(null);
+
+  const handleAudit = async (agentId: string) => {
+    setAuditing(agentId);
+    setAuditResult(null);
+    try {
+      const result = await api.improvements.audit(agentId);
+      setAuditResult({ improvements_created: result.improvements_created, document_title: result.document_title });
+      loadData(activeTab);
+    } catch (e) { console.error(e); }
+    finally { setAuditing(null); }
+  };
 
   const loadData = (status?: string) => {
     setLoading(true);
@@ -100,13 +113,33 @@ export default function ImprovementsPage() {
       title="Improvements"
       description="Agent-proposed workflow improvements"
       headerActions={
-        <button
-          onClick={() => setShowForm(!showForm)}
-          className="flex items-center gap-1.5 rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-slate-800"
-        >
-          {showForm ? <X className="h-3.5 w-3.5" /> : <Plus className="h-3.5 w-3.5" />}
-          {showForm ? "Cancel" : "Propose"}
-        </button>
+        <div className="flex items-center gap-2">
+          {/* Audit buttons per agent */}
+          {agents.map((a) => (
+            <button
+              key={a.id}
+              onClick={() => handleAudit(a.id)}
+              disabled={auditing !== null}
+              className="flex items-center gap-1 rounded-lg border px-2 py-1 text-[11px] font-medium transition-fast disabled:opacity-40"
+              style={{ borderColor: "var(--border)", color: "var(--text-muted)" }}
+              title={`Run weekly audit for ${a.display_name}`}
+            >
+              {auditing === a.id ? (
+                <div className="h-3 w-3 animate-spin rounded-full border border-slate-300 border-t-slate-900" />
+              ) : (
+                <span className="text-xs">{a.avatar_emoji}</span>
+              )}
+              Audit
+            </button>
+          ))}
+          <button
+            onClick={() => setShowForm(!showForm)}
+            className="flex items-center gap-1.5 rounded-lg bg-[color:var(--accent)] px-3 py-1.5 text-xs font-medium text-white hover:opacity-90"
+          >
+            {showForm ? <X className="h-3.5 w-3.5" /> : <Plus className="h-3.5 w-3.5" />}
+            {showForm ? "Cancel" : "Propose"}
+          </button>
+        </div>
       }
     >
       <SignedOut>
@@ -115,6 +148,26 @@ export default function ImprovementsPage() {
       <SignedIn>
         <div className="mx-auto max-w-4xl space-y-6">
           {/* Create form */}
+          {/* Audit result banner */}
+          {auditResult && (
+            <div className="rounded-xl border p-4 flex items-center gap-3" style={{ borderColor: "var(--border)", background: "var(--success-soft)" }}>
+              <Sparkles className="h-5 w-5 shrink-0" style={{ color: "var(--success)" }} />
+              <div>
+                <p className="text-sm font-medium" style={{ color: "var(--text)" }}>
+                  Audit complete — {auditResult.improvements_created} improvement{auditResult.improvements_created !== 1 ? "s" : ""} generated
+                </p>
+                {auditResult.document_title && (
+                  <p className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>
+                    Saved as: {auditResult.document_title}
+                  </p>
+                )}
+              </div>
+              <button onClick={() => setAuditResult(null)} className="ml-auto" style={{ color: "var(--text-quiet)" }}>
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          )}
+
           {showForm && <CreateForm agents={agents} onSubmit={handleCreate} />}
 
           {/* Stats bar */}

@@ -9,10 +9,17 @@ from sqlalchemy import func
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+import httpx
+
 from app.api.deps import ORG_MEMBER_DEP, SESSION_DEP, require_org_admin
+from app.core.config import settings
+from app.core.logging import get_logger
 from app.core.time import utcnow
+from app.models.documents import Document
 from app.models.executive_agents import ExecutiveAgent
 from app.models.improvements import Improvement
+
+logger = get_logger(__name__)
 from app.schemas.improvements import (
     ImprovementCreate,
     ImprovementRead,
@@ -101,6 +108,172 @@ async def get_improvement_stats(
         rejected=counts.get("rejected", 0),
         total=total,
     )
+
+
+from sqlmodel import SQLModel
+
+
+class AuditResult(SQLModel):
+    document_id: str | None = None
+    document_title: str | None = None
+    improvements_created: int = 0
+    agent_response: str | None = None
+
+
+@router.post("/audit/{agent_id}", response_model=AuditResult)
+async def run_weekly_audit(
+    agent_id: UUID,
+    session: AsyncSession = SESSION_DEP,
+    ctx: OrganizationContext = ORG_MEMBER_DEP,
+) -> AuditResult:
+    """Run a weekly audit for an agent — dispatches audit prompt, saves results as doc + improvements."""
+    exec_agent = await ExecutiveAgent.objects.filter_by(
+        id=agent_id,
+        organization_id=ctx.organization.id,
+    ).first(session)
+    if not exec_agent:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
+
+    # Build audit prompt
+    audit_prompt = f"""You are running your weekly self-audit as {exec_agent.display_name} ({exec_agent.executive_role}).
+
+Review your recent work this week and produce a structured audit report covering:
+
+1. **Tasks completed** — what did you accomplish this week?
+2. **Key outputs** — what documents, briefs, or artifacts were produced?
+3. **Risks identified** — what risks or bottlenecks are you seeing?
+4. **Friction points** — what recurring friction or inefficiencies did you notice?
+5. **Improvement suggestions** — what 2-3 specific things should we do better next week?
+
+Format your response as a clear markdown document.
+
+For each improvement suggestion, use this format:
+### Improvement: [Title]
+**Priority:** [high/normal/low]
+**Category:** [process/tooling/communication/automation]
+**Description:** [What should change and why]
+"""
+
+    # Dispatch to agent via bridge or CLI
+    agent_response = await _dispatch_audit(exec_agent.openclaw_agent_id, audit_prompt)
+
+    if not agent_response:
+        return AuditResult(agent_response="Agent did not respond to audit prompt.")
+
+    # Save as document
+    doc = Document(
+        organization_id=ctx.organization.id,
+        title=f"Weekly Audit: {exec_agent.display_name} ({utcnow().strftime('%Y-%m-%d')})",
+        content=agent_response,
+        doc_type="memo",
+        source_agent_id=agent_id,
+        status="published",
+    )
+    session.add(doc)
+    await session.flush()
+
+    # Parse improvement suggestions from response
+    improvements_created = 0
+    lines = agent_response.split("\n")
+    current_title = None
+    current_desc = ""
+    current_priority = "normal"
+    current_category = "process"
+
+    for line in lines:
+        if line.strip().startswith("### Improvement:"):
+            # Save previous if exists
+            if current_title:
+                imp = Improvement(
+                    organization_id=ctx.organization.id,
+                    executive_agent_id=agent_id,
+                    title=current_title,
+                    description=current_desc.strip(),
+                    priority=current_priority,
+                    category=current_category,
+                    rationale=f"From weekly audit on {utcnow().strftime('%Y-%m-%d')}",
+                )
+                session.add(imp)
+                improvements_created += 1
+
+            current_title = line.strip().replace("### Improvement:", "").strip()
+            current_desc = ""
+            current_priority = "normal"
+            current_category = "process"
+        elif current_title:
+            if line.strip().startswith("**Priority:**"):
+                val = line.strip().replace("**Priority:**", "").strip().lower()
+                if val in ("high", "normal", "low", "urgent"):
+                    current_priority = val
+            elif line.strip().startswith("**Category:**"):
+                val = line.strip().replace("**Category:**", "").strip().lower()
+                if val in ("process", "tooling", "communication", "automation"):
+                    current_category = val
+            elif line.strip().startswith("**Description:**"):
+                current_desc = line.strip().replace("**Description:**", "").strip()
+            else:
+                current_desc += "\n" + line
+
+    # Save last improvement
+    if current_title:
+        imp = Improvement(
+            organization_id=ctx.organization.id,
+            executive_agent_id=agent_id,
+            title=current_title,
+            description=current_desc.strip(),
+            priority=current_priority,
+            category=current_category,
+            rationale=f"From weekly audit on {utcnow().strftime('%Y-%m-%d')}",
+        )
+        session.add(imp)
+        improvements_created += 1
+
+    await session.commit()
+    await session.refresh(doc)
+
+    return AuditResult(
+        document_id=str(doc.id),
+        document_title=doc.title,
+        improvements_created=improvements_created,
+        agent_response=agent_response[:500],
+    )
+
+
+async def _dispatch_audit(openclaw_agent_id: str, prompt: str) -> str | None:
+    """Dispatch audit prompt to agent via bridge or CLI."""
+    if settings.bridge_url:
+        url = f"{settings.bridge_url.rstrip('/')}/chat"
+        headers = {"X-Bridge-Token": settings.bridge_token}
+        try:
+            async with httpx.AsyncClient(timeout=130.0) as client:
+                resp = await client.post(url, headers=headers, json={
+                    "agent_id": openclaw_agent_id,
+                    "message": prompt,
+                })
+            if resp.status_code == 200:
+                data = resp.json()
+                return data.get("response")
+        except Exception as exc:
+            logger.warning("audit.bridge.failed", error=str(exc))
+        return None
+
+    # Local CLI fallback
+    import asyncio
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "openclaw", "agent", "--agent", openclaw_agent_id, "--message", prompt, "--json",
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=120)
+        import json
+        output = stdout.decode("utf-8", errors="replace").strip()
+        data = json.loads(output)
+        payloads = data.get("result", {}).get("payloads", [])
+        if payloads:
+            return "\n\n".join(p.get("text", "") for p in payloads if p.get("text"))
+    except Exception as exc:
+        logger.warning("audit.cli.failed", error=str(exc))
+    return None
 
 
 @router.get("/{improvement_id}", response_model=ImprovementRead)
