@@ -80,6 +80,18 @@ async def create_current_week_review(
     return review
 
 
+@router.post("/auto-generate", response_model=WeeklyReviewRead)
+async def auto_generate_weekly_review(
+    session: AsyncSession = SESSION_DEP,
+    ctx: OrganizationContext = Depends(require_org_admin),
+) -> WeeklyReview:
+    """Create review for current week (if not exists) and auto-generate content."""
+    # Create or get current week's review
+    review = await create_current_week_review(session=session, ctx=ctx)
+    # Generate content
+    return await generate_weekly_review(review_id=review.id, session=session, ctx=ctx)
+
+
 @router.get("/{review_id}", response_model=WeeklyReviewRead)
 async def get_weekly_review(
     review_id: UUID,

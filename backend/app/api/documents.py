@@ -43,6 +43,7 @@ async def _resolve_agent(
 async def list_documents(
     source_agent_id: UUID | None = Query(default=None),
     doc_type: str | None = Query(default=None),
+    origin: str | None = Query(default=None),
     status_filter: str | None = Query(default=None, alias="status"),
     limit: int = Query(default=50, le=200),
     session: AsyncSession = SESSION_DEP,
@@ -59,6 +60,8 @@ async def list_documents(
         stmt = stmt.where(col(Document.source_agent_id) == source_agent_id)
     if doc_type:
         stmt = stmt.where(col(Document.doc_type) == doc_type)
+    if origin:
+        stmt = stmt.where(col(Document.origin) == origin)
     if status_filter:
         stmt = stmt.where(col(Document.status) == status_filter)
 

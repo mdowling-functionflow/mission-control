@@ -197,6 +197,55 @@ async def run_weekly_audit(
     )
     imp_count = (await session.exec(imp_count_stmt)).one()
 
+    # Daily items this week
+    from app.models.daily_items import DailyItem
+    from datetime import timedelta as td
+    week_start_date = (utcnow() - timedelta(days=7)).date()
+    daily_total_stmt = select(func.count()).select_from(DailyItem).where(
+        col(DailyItem.executive_agent_id) == agent_id,
+        col(DailyItem.organization_id) == ctx.organization.id,
+        col(DailyItem.item_date) >= week_start_date,
+    )
+    daily_total = (await session.exec(daily_total_stmt)).one()
+    daily_done_stmt = select(func.count()).select_from(DailyItem).where(
+        col(DailyItem.executive_agent_id) == agent_id,
+        col(DailyItem.organization_id) == ctx.organization.id,
+        col(DailyItem.item_date) >= week_start_date,
+        col(DailyItem.status) == "done",
+    )
+    daily_done = (await session.exec(daily_done_stmt)).one()
+    # Stale items (>3 days pending)
+    stale_date = (utcnow() - timedelta(days=3)).date()
+    stale_stmt = select(func.count()).select_from(DailyItem).where(
+        col(DailyItem.executive_agent_id) == agent_id,
+        col(DailyItem.organization_id) == ctx.organization.id,
+        col(DailyItem.item_date) <= stale_date,
+        col(DailyItem.status) == "pending",
+    )
+    stale_count = (await session.exec(stale_stmt)).one()
+
+    # Schedule health via bridge (best-effort)
+    schedule_summary = "Unknown (bridge not reachable)"
+    if settings.bridge_url:
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as hclient:
+                sched_resp = await hclient.get(
+                    f"{settings.bridge_url.rstrip('/')}/cron/list",
+                    headers={"X-Bridge-Token": settings.bridge_token},
+                )
+            if sched_resp.status_code == 200:
+                sched_data = sched_resp.json()
+                all_jobs = sched_data.get("jobs", sched_data) if isinstance(sched_data, dict) else sched_data
+                if isinstance(all_jobs, list):
+                    agent_jobs = [j for j in all_jobs if j.get("agentId") == exec_agent.openclaw_agent_id]
+                    failing = [j for j in agent_jobs if j.get("state", {}).get("consecutiveErrors", 0) > 0]
+                    schedule_summary = f"{len(agent_jobs)} schedules, {len(failing)} failing"
+                    if failing:
+                        fail_names = ", ".join(j.get("name", "?") for j in failing[:3])
+                        schedule_summary += f" ({fail_names})"
+        except Exception:
+            pass
+
     # Build goal-aware, workload-grounded audit prompt
     goal_line = f"\nYour current goal: {exec_agent.goal}" if exec_agent.goal else ""
     workload_section = f"""
@@ -205,6 +254,9 @@ Actual workload this week:
 - Documents produced:
 {doc_list}
 - Previous improvements proposed: {imp_count}
+- Daily items: {daily_total} generated, {daily_done} completed, {stale_count} stale (>3 days pending)
+- Schedules: {schedule_summary}
+- Pending approvals: {exec_agent.pending_approvals_count}
 - Current focus: {exec_agent.current_focus or 'Not set'}
 - Current risk: {exec_agent.current_risk or 'None flagged'}
 """
@@ -383,6 +435,42 @@ async def _dispatch_audit(openclaw_agent_id: str, prompt: str) -> str | None:
     except Exception as exc:
         logger.warning("audit.cli.failed", error=str(exc))
     return None
+
+
+@router.post("/audit-all")
+async def run_audit_all(
+    session: AsyncSession = SESSION_DEP,
+    ctx: OrganizationContext = ORG_MEMBER_DEP,
+) -> dict:
+    """Run weekly audits for all primary agents in sequence. Returns summary."""
+    agents = await ExecutiveAgent.objects.filter_by(
+        organization_id=ctx.organization.id,
+        agent_type="primary",
+    ).all(session)
+
+    results = []
+    for agent in agents:
+        try:
+            result = await run_weekly_audit(
+                agent_id=agent.id,
+                session=session,
+                ctx=ctx,
+            )
+            results.append({
+                "agent": agent.display_name,
+                "improvements": result.improvements_created,
+                "document_id": result.document_id,
+                "status": "ok",
+            })
+        except HTTPException as exc:
+            if exc.status_code == 429:
+                results.append({"agent": agent.display_name, "status": "rate_limited"})
+            else:
+                results.append({"agent": agent.display_name, "status": f"error: {exc.detail}"})
+        except Exception as exc:
+            results.append({"agent": agent.display_name, "status": f"error: {str(exc)[:100]}"})
+
+    return {"audited": len(results), "results": results}
 
 
 @router.get("/{improvement_id}", response_model=ImprovementRead)

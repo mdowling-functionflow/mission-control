@@ -233,42 +233,53 @@ async def seed_skill_allocations(
     session: AsyncSession = SESSION_DEP,
     ctx: OrganizationContext = Depends(require_org_admin),
 ) -> dict:
-    """Seed skill-to-agent allocation mappings from the canonical allocation table."""
+    """Seed skill-to-agent allocation mappings using real installed skill identifiers.
+
+    With force=true, clears all existing mappings first and re-seeds from scratch.
+    All skill_paths must match actual installed skill names.
+    """
+    # Canonical allocation table — every skill_path is a real installed skill
     ALLOCATIONS: dict[str, list[tuple[str, str]]] = {
         # agent_slug: [(skill_path, relevance), ...]
         "main": [
-            ("orchestrator", "core"), ("delegation", "core"), ("cross-agent-synthesis", "core"),
-            ("brand-voice", "shared"), ("email-tools", "shared"),
+            ("morning-digest", "core"), ("meeting-prep", "core"), ("proactive-tasks", "core"),
+            ("narrative-brand-voice", "shared"), ("agentmail", "shared"),
         ],
         "sales": [
-            ("hubspot", "core"), ("sales-pipeline", "core"), ("meeting-prep-sales", "core"),
-            ("brand-voice", "shared"), ("email-tools", "shared"), ("ai-meeting-notes", "shared"),
+            ("hubspot", "core"), ("meeting-prep", "shared"), ("ai-meeting-notes", "shared"),
+            ("company-research", "shared"), ("narrative-brand-voice", "shared"), ("agentmail", "shared"),
         ],
         "fundraising": [
-            ("investor-pipeline", "core"), ("diligence-prep", "core"), ("pitch-narrative", "core"),
-            ("brand-voice", "shared"), ("email-tools", "shared"),
+            ("company-research", "core"), ("narrative-content-writer", "shared"),
+            ("narrative-brand-voice", "shared"), ("agentmail", "shared"),
         ],
         "people": [
-            ("hiring-pipeline", "core"), ("candidate-research", "core"), ("onboarding", "core"),
-            ("email-tools", "shared"),
+            ("company-research", "shared"), ("agentmail", "shared"),
+            ("pa-admin-exec", "shared"),
         ],
         "strategy": [
-            ("competitor-watch", "core"), ("market-news-analyst", "core"), ("strategy-framing", "core"),
-            ("brand-voice", "shared"),
+            ("competitor-watch", "core"), ("market-news-analyst", "core"),
+            ("competitor-intel", "core"), ("competitor-teardown", "core"),
+            ("afrexai-competitor-monitor", "core"), ("company-research", "shared"),
+            ("narrative-brand-voice", "shared"),
         ],
         "dcu": [
-            ("academic-calendar", "core"), ("slides-gen", "core"), ("academic-email", "core"),
+            ("academia-email-responder", "core"), ("slides-cog", "core"),
+            ("google-slides", "core"), ("research-paper-writer", "core"),
+            ("research-cog", "shared"),
         ],
         "life-admin": [
-            ("calendar-management", "core"), ("reminders", "core"), ("logistics", "core"),
-            ("email-tools", "shared"),
+            ("email-to-calendar", "core"), ("proactive-tasks", "core"),
+            ("pa-admin-exec", "core"), ("agentmail", "shared"),
         ],
         "narrative-sales": [
-            ("linkedin-writer", "core"), ("brand-voice", "core"), ("content-calendar", "core"),
-            ("email-tools", "shared"),
+            ("linkedin-writer", "core"), ("narrative-brand-voice", "core"),
+            ("narrative-content-writer", "core"), ("narrative-receipts", "core"),
+            ("humaniser", "shared"), ("agentmail", "shared"),
         ],
         "builder": [
-            ("code-gen", "core"), ("automation", "core"), ("tooling", "core"),
+            ("ai-web-automation", "core"), ("self-monitor", "core"),
+            ("skill-sync", "core"),
         ],
     }
 
@@ -277,29 +288,33 @@ async def seed_skill_allocations(
     ).all(session)
     agent_map = {a.openclaw_agent_id: a for a in agents}
 
+    # Clear all existing mappings and re-seed from scratch
+    cleared_count = 0
+    for agent in agents:
+        existing = await AgentSkillMapping.objects.filter_by(
+            executive_agent_id=agent.id,
+        ).all(session)
+        for m in existing:
+            await session.delete(m)
+            cleared_count += 1
+
     created_count = 0
     for agent_slug, skills in ALLOCATIONS.items():
         agent = agent_map.get(agent_slug)
         if not agent:
             continue
-        # Check existing mappings
-        existing = await AgentSkillMapping.objects.filter_by(
-            executive_agent_id=agent.id,
-        ).all(session)
-        existing_paths = {m.skill_path for m in existing}
 
         for skill_path, relevance in skills:
-            if skill_path not in existing_paths:
-                mapping = AgentSkillMapping(
-                    executive_agent_id=agent.id,
-                    skill_path=skill_path,
-                    relevance=relevance,
-                )
-                session.add(mapping)
-                created_count += 1
+            mapping = AgentSkillMapping(
+                executive_agent_id=agent.id,
+                skill_path=skill_path,
+                relevance=relevance,
+            )
+            session.add(mapping)
+            created_count += 1
 
     await session.commit()
-    return {"created": created_count, "message": f"Seeded {created_count} skill allocations"}
+    return {"cleared": cleared_count, "created": created_count, "message": f"Cleared {cleared_count}, seeded {created_count} canonical skill allocations"}
 
 
 @router.post("/reconcile")
@@ -323,7 +338,7 @@ async def reconcile_agents(
     diffs: list[dict] = []
     applied = 0
     skipped = 0
-    sync_fields = ["display_name", "persona_name", "executive_role", "avatar_emoji", "goal", "agent_type", "sidebar_visible"]
+    sync_fields = ["display_name", "persona_name", "executive_role", "avatar_emoji", "goal", "agent_type", "sidebar_visible", "role_description"]
 
     if not settings.bridge_url:
         return {"diffs": [], "applied": 0, "skipped": 0, "message": "No bridge configured"}
@@ -336,6 +351,18 @@ async def reconcile_agents(
                     headers={"X-Bridge-Token": settings.bridge_token},
                 )
                 if resp.status_code != 200:
+                    # PROFILE.json doesn't exist — auto-create from DB values
+                    profile_data = {f: getattr(agent, f, None) for f in sync_fields}
+                    profile_data = {k: v for k, v in profile_data.items() if v is not None}
+                    try:
+                        await client.put(
+                            f"{settings.bridge_url.rstrip('/')}/agent-files/{agent.openclaw_agent_id}/PROFILE.json",
+                            headers={"X-Bridge-Token": settings.bridge_token},
+                            json={"content": json_lib.dumps(profile_data, indent=2)},
+                        )
+                        logger.info("reconcile.profile_created", agent=agent.openclaw_agent_id)
+                    except Exception:
+                        pass
                     skipped += 1
                     continue
                 file_content = resp.json().get("content", "")
@@ -937,6 +964,7 @@ async def _sync_identity_to_openclaw(agent: ExecutiveAgent) -> None:
                     "agent_type": agent.agent_type,
                     "goal": agent.goal,
                     "sidebar_visible": agent.sidebar_visible,
+                    "role_description": agent.role_description,
                 }
                 profile_resp = await client.put(
                     f"{settings.bridge_url.rstrip('/')}/agent-files/{agent.openclaw_agent_id}/PROFILE.json",

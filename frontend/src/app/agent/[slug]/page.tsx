@@ -1197,20 +1197,30 @@ function DocsTab({ agentId }: { agentId: string }) {
 
 function ImprovementsTab({ agentId, agent }: { agentId: string; agent: ExecutiveAgent }) {
   const [items, setItems] = useState<AgentImprovement[]>([]);
+  const [latestReport, setLatestReport] = useState<DocumentItem | null>(null);
   const [loading, setLoading] = useState(true);
   const [auditing, setAuditing] = useState(false);
 
   useEffect(() => {
-    api.agents.improvements(agentId).then(setItems).catch(console.error).finally(() => setLoading(false));
+    Promise.all([
+      api.agents.improvements(agentId),
+      api.documents.list(agentId, undefined, "audit").then((docs) => docs[0] || null),
+    ]).then(([imps, report]) => {
+      setItems(imps);
+      setLatestReport(report);
+    }).catch(console.error).finally(() => setLoading(false));
   }, [agentId]);
 
   const handleAudit = async () => {
     setAuditing(true);
     try {
       await api.improvements.audit(agentId);
-      // Refresh improvements list
-      const updated = await api.agents.improvements(agentId);
+      const [updated, report] = await Promise.all([
+        api.agents.improvements(agentId),
+        api.documents.list(agentId, undefined, "audit").then((docs) => docs[0] || null),
+      ]);
       setItems(updated);
+      setLatestReport(report);
     } catch (e) { console.error(e); }
     finally { setAuditing(false); }
   };
@@ -1223,6 +1233,24 @@ function ImprovementsTab({ agentId, agent }: { agentId: string; agent: Executive
           <p className="text-[10px] font-semibold uppercase tracking-widest mb-1" style={{ color: "var(--text-quiet)" }}>Current Goal</p>
           <p className="text-[13px] font-medium" style={{ color: "var(--text)" }}>{agent.goal}</p>
         </div>
+      )}
+
+      {/* Latest report card */}
+      {latestReport && (
+        <Link
+          href={`/docs/${latestReport.id}`}
+          className="flex items-center gap-3 rounded-xl border p-3 transition-smooth hover:shadow-elevation-2"
+          style={{ borderColor: "var(--accent)", background: "var(--surface)" }}
+        >
+          <span className="text-lg">📊</span>
+          <div className="min-w-0 flex-1">
+            <p className="text-[13px] font-medium" style={{ color: "var(--text)" }}>{latestReport.title}</p>
+            <p className="text-[11px] mt-0.5" style={{ color: "var(--text-quiet)" }}>
+              {new Date(latestReport.created_at).toLocaleDateString()} · {items.length} improvement{items.length !== 1 ? "s" : ""}
+            </p>
+          </div>
+          <ArrowRight className="h-4 w-4 shrink-0" style={{ color: "var(--accent)" }} />
+        </Link>
       )}
 
       {/* Audit button */}
@@ -1261,6 +1289,7 @@ function ImprovementsTab({ agentId, agent }: { agentId: string; agent: Executive
                 </span>
               </div>
               {i.description && <p className="text-xs mt-1 ml-6" style={{ color: "var(--text-muted)" }}>{i.description}</p>}
+              {i.goal_relevance && <p className="text-[11px] mt-1 ml-6 italic" style={{ color: "var(--text-quiet)" }}>{i.goal_relevance}</p>}
             </div>
           ))}
         </div>

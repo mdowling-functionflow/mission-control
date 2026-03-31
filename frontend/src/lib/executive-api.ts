@@ -170,6 +170,7 @@ export interface AgentImprovement {
   id: string;
   title: string;
   description: string | null;
+  goal_relevance: string | null;
   status: string;
   priority: string;
   category: string;
@@ -624,10 +625,11 @@ export const api = {
   },
 
   documents: {
-    list: (agentId?: string, docType?: string) => {
+    list: (agentId?: string, docType?: string, origin?: string) => {
       const params = new URLSearchParams();
       if (agentId) params.set("source_agent_id", agentId);
       if (docType) params.set("doc_type", docType);
+      if (origin) params.set("origin", origin);
       const qs = params.toString();
       return execFetch<DocumentItem[]>(`/api/v1/documents${qs ? `?${qs}` : ""}`);
     },
