@@ -376,6 +376,21 @@ async def upload_thread_attachment(
         attachment_size=attachment_meta.get("size") if attachment_meta else None,
     )
     session.add(msg)
+
+    # Auto-create a Document so file appears in agent's Docs tab
+    from app.models.documents import Document
+    doc = Document(
+        organization_id=ctx.organization.id,
+        title=file.filename or "Untitled upload",
+        doc_type="uploaded",
+        source_agent_id=thread.executive_agent_id,
+        file_path=attachment_meta.get("path") if attachment_meta else None,
+        mime_type=file.content_type,
+        file_size=attachment_meta.get("size") if attachment_meta else None,
+        status="published",
+    )
+    session.add(doc)
+
     thread.updated_at = utcnow()
     session.add(thread)
     await session.commit()

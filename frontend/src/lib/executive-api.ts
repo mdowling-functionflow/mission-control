@@ -301,6 +301,19 @@ export interface ChatMessage {
 
 // ─── Document Types ──────────────────────────────────────────────────
 
+export interface DailyItemRead {
+  id: string;
+  executive_agent_id: string;
+  date: string;
+  title: string;
+  description: string;
+  item_type: string;
+  urgency: string;
+  status: string;
+  source: string;
+  created_at: string;
+}
+
 export interface DocumentItem {
   id: string;
   organization_id: string;
@@ -615,6 +628,27 @@ export const api = {
         body: JSON.stringify(data),
       }),
     downloadUrl: (id: string) => `${getApiBaseUrl()}/api/v1/documents/${id}/download`,
+  },
+
+  dailyItems: {
+    list: (agentId?: string, targetDate?: string) => {
+      const params = new URLSearchParams();
+      if (agentId) params.set("agent_id", agentId);
+      if (targetDate) params.set("date", targetDate);
+      const qs = params.toString();
+      return execFetch<DailyItemRead[]>(`/api/v1/daily-items${qs ? `?${qs}` : ""}`);
+    },
+    update: (id: string, data: { status?: string }) =>
+      execFetch<DailyItemRead>(`/api/v1/daily-items/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify(data),
+      }),
+    generate: (agentId?: string) => {
+      const params = agentId ? `?agent_id=${agentId}` : "";
+      return execFetch<DailyItemRead[]>(`/api/v1/daily-items/generate${params}`, {
+        method: "POST",
+      });
+    },
   },
 
   skills: {

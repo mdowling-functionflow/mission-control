@@ -217,6 +217,80 @@ async def seed_executive_team(
     return created
 
 
+@router.post("/seed-allocations", status_code=status.HTTP_201_CREATED)
+async def seed_skill_allocations(
+    session: AsyncSession = SESSION_DEP,
+    ctx: OrganizationContext = Depends(require_org_admin),
+) -> dict:
+    """Seed skill-to-agent allocation mappings from the canonical allocation table."""
+    ALLOCATIONS: dict[str, list[tuple[str, str]]] = {
+        # agent_slug: [(skill_path, relevance), ...]
+        "main": [
+            ("orchestrator", "core"), ("delegation", "core"), ("cross-agent-synthesis", "core"),
+            ("brand-voice", "shared"), ("email-tools", "shared"),
+        ],
+        "sales": [
+            ("hubspot", "core"), ("sales-pipeline", "core"), ("meeting-prep-sales", "core"),
+            ("brand-voice", "shared"), ("email-tools", "shared"), ("ai-meeting-notes", "shared"),
+        ],
+        "fundraising": [
+            ("investor-pipeline", "core"), ("diligence-prep", "core"), ("pitch-narrative", "core"),
+            ("brand-voice", "shared"), ("email-tools", "shared"),
+        ],
+        "people": [
+            ("hiring-pipeline", "core"), ("candidate-research", "core"), ("onboarding", "core"),
+            ("email-tools", "shared"),
+        ],
+        "strategy": [
+            ("competitor-watch", "core"), ("market-news-analyst", "core"), ("strategy-framing", "core"),
+            ("brand-voice", "shared"),
+        ],
+        "dcu": [
+            ("academic-calendar", "core"), ("slides-gen", "core"), ("academic-email", "core"),
+        ],
+        "life-admin": [
+            ("calendar-management", "core"), ("reminders", "core"), ("logistics", "core"),
+            ("email-tools", "shared"),
+        ],
+        "narrative-sales": [
+            ("linkedin-writer", "core"), ("brand-voice", "core"), ("content-calendar", "core"),
+            ("email-tools", "shared"),
+        ],
+        "builder": [
+            ("code-gen", "core"), ("automation", "core"), ("tooling", "core"),
+        ],
+    }
+
+    agents = await ExecutiveAgent.objects.filter_by(
+        organization_id=ctx.organization.id,
+    ).all(session)
+    agent_map = {a.openclaw_agent_id: a for a in agents}
+
+    created_count = 0
+    for agent_slug, skills in ALLOCATIONS.items():
+        agent = agent_map.get(agent_slug)
+        if not agent:
+            continue
+        # Check existing mappings
+        existing = await AgentSkillMapping.objects.filter_by(
+            executive_agent_id=agent.id,
+        ).all(session)
+        existing_paths = {m.skill_path for m in existing}
+
+        for skill_path, relevance in skills:
+            if skill_path not in existing_paths:
+                mapping = AgentSkillMapping(
+                    executive_agent_id=agent.id,
+                    skill_path=skill_path,
+                    relevance=relevance,
+                )
+                session.add(mapping)
+                created_count += 1
+
+    await session.commit()
+    return {"created": created_count, "message": f"Seeded {created_count} skill allocations"}
+
+
 @router.post("/create", response_model=ExecutiveAgentRead, status_code=status.HTTP_201_CREATED)
 async def create_executive_agent(
     body: ExecutiveAgentCreate,

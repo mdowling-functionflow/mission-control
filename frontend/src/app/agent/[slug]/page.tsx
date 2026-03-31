@@ -11,16 +11,24 @@ import {
   ArrowRight,
   CalendarCheck,
   CheckCircle2,
+  ChevronDown,
+  ChevronRight,
+  Circle,
   Clock,
+  Download,
   FileCode,
   FileText,
+  Filter,
   Lightbulb,
   ListTodo,
   MessageSquare,
   Paperclip,
   Plus,
+  RefreshCw,
+  Save,
   Send,
   Square,
+  Upload,
   Users,
   X,
   XCircle,
@@ -45,16 +53,17 @@ import {
   type ThreadMessage,
   type DocumentItem,
   type ChatMessage,
+  type DailyItemRead,
 } from "@/lib/executive-api";
 
-type Tab = "chat" | "agent" | "skills" | "schedules" | "knowledge" | "improvements" | "approvals" | "review";
+type Tab = "chat" | "docs" | "agent" | "skills" | "schedules" | "improvements" | "approvals" | "review";
 
 const BASE_TABS: Array<{ key: Tab; label: string; icon: typeof Activity }> = [
   { key: "chat", label: "Chat", icon: MessageSquare },
+  { key: "docs", label: "Docs", icon: FileText },
   { key: "agent", label: "Agent", icon: Activity },
   { key: "skills", label: "Skills", icon: FileCode },
   { key: "schedules", label: "Schedules", icon: Clock },
-  { key: "knowledge", label: "Knowledge", icon: FileText },
   { key: "improvements", label: "Improvements", icon: Lightbulb },
 ];
 
@@ -167,7 +176,7 @@ export default function AgentWorkspacePage() {
             {activeTab === "agent" && <AgentTab agent={agent} slug={slug} />}
             {activeTab === "skills" && <SkillsTab agentId={agent.id} />}
             {activeTab === "schedules" && <SchedulesTab agentSlug={slug} />}
-            {activeTab === "knowledge" && <KnowledgeTab agentId={agent.id} />}
+            {activeTab === "docs" && <DocsTab agentId={agent.id} />}
             {activeTab === "improvements" && <ImprovementsTab agentId={agent.id} />}
             {activeTab === "approvals" && <ApprovalsTab />}
             {activeTab === "review" && <WeeklyReviewTab />}
@@ -190,8 +199,15 @@ function ChatTab({ agent }: { agent: ExecutiveAgent }) {
   const [fastPoll, setFastPoll] = useState(false);
   const [stoppedGen, setStoppedGen] = useState(false);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [dailyItems, setDailyItems] = useState<DailyItemRead[]>([]);
+  const [todayCollapsed, setTodayCollapsed] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Load daily items for today
+  useEffect(() => {
+    api.dailyItems.list(agent.id).then(setDailyItems).catch(() => {});
+  }, [agent.id]);
 
   // Load threads
   useEffect(() => {
@@ -420,6 +436,64 @@ function ChatTab({ agent }: { agent: ExecutiveAgent }) {
       <div className="flex-1 flex flex-col min-w-0">
         {/* Messages — only this part scrolls */}
         <div ref={scrollRef} className="flex-1 overflow-y-auto">
+          {/* Today panel — proactive daily items */}
+          {dailyItems.filter((i) => i.status === "pending").length > 0 && (
+            <div className="border-b" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
+              <div className="max-w-3xl mx-auto px-6 py-2">
+                <button
+                  onClick={() => setTodayCollapsed(!todayCollapsed)}
+                  className="flex items-center gap-2 w-full text-left"
+                >
+                  {todayCollapsed ? <ChevronRight className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                  <span className="text-[12px] font-semibold" style={{ color: "var(--text)" }}>
+                    Today
+                  </span>
+                  <span className="text-[10px] rounded-full px-1.5 py-0.5 font-medium" style={{ background: "var(--accent-soft)", color: "var(--accent)" }}>
+                    {dailyItems.filter((i) => i.status === "pending").length}
+                  </span>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      api.dailyItems.generate(agent.id).then(setDailyItems).catch(console.error);
+                    }}
+                    className="ml-auto p-1 rounded transition-fast hover:bg-[color:var(--surface-muted)]"
+                    title="Refresh"
+                  >
+                    <RefreshCw className="h-3 w-3" style={{ color: "var(--text-quiet)" }} />
+                  </button>
+                </button>
+                {!todayCollapsed && (
+                  <div className="mt-2 space-y-1 pb-1">
+                    {dailyItems.filter((i) => i.status === "pending").map((item) => (
+                      <div
+                        key={item.id}
+                        className="flex items-start gap-2 rounded-lg px-2 py-1.5 text-[12px] transition-fast hover:bg-[color:var(--surface-muted)]"
+                      >
+                        <span className="mt-0.5 shrink-0">
+                          {item.urgency === "high" ? "🔴" : item.urgency === "medium" ? "🟡" : "🟢"}
+                        </span>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-medium" style={{ color: "var(--text)" }}>{item.title}</p>
+                          <p className="text-[11px] mt-0.5" style={{ color: "var(--text-quiet)" }}>{item.description}</p>
+                        </div>
+                        <button
+                          onClick={() => {
+                            api.dailyItems.update(item.id, { status: "done" }).then(() => {
+                              setDailyItems((prev) => prev.map((i) => i.id === item.id ? { ...i, status: "done" } : i));
+                            });
+                          }}
+                          className="shrink-0 p-1 rounded transition-fast hover:bg-emerald-50 dark:hover:bg-emerald-950/20"
+                          title="Mark done"
+                        >
+                          <CheckCircle2 className="h-3.5 w-3.5" style={{ color: "var(--text-quiet)" }} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
           <div className="max-w-3xl mx-auto px-6 py-4 space-y-4">
             {loading ? <Spinner /> : !activeThreadId ? (
               <div className="flex flex-col items-center justify-center h-[60vh] text-center">
@@ -459,11 +533,39 @@ function ChatTab({ agent }: { agent: ExecutiveAgent }) {
                   </div>
                 ) : (
                   /* Agent response — clean text with markdown */
-                  <div className="px-1 py-2">
+                  <div className="group/msg px-1 py-2">
                     <div className="flex items-start gap-2">
                       <span className="mt-0.5 text-sm shrink-0">{agent.avatar_emoji || "🤖"}</span>
-                      <div className="prose prose-sm prose-slate dark:prose-invert max-w-none [&>p]:my-2 [&>ul]:my-2 [&>ol]:my-2 [&>h1]:text-base [&>h2]:text-sm [&>h3]:text-sm [&>h1]:mt-4 [&>h1]:mb-2 [&>h2]:mt-3 [&>h2]:mb-1 [&>h3]:mt-2 [&>h3]:mb-1 [&_li]:my-0.5" style={{ color: "var(--text)", fontSize: "13px" }}>
-                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
+                      <div className="flex-1 min-w-0">
+                        <div className="prose prose-sm prose-slate dark:prose-invert max-w-none [&>p]:my-2 [&>ul]:my-2 [&>ol]:my-2 [&>h1]:text-base [&>h2]:text-sm [&>h3]:text-sm [&>h1]:mt-4 [&>h1]:mb-2 [&>h2]:mt-3 [&>h2]:mb-1 [&>h3]:mt-2 [&>h3]:mb-1 [&_li]:my-0.5" style={{ color: "var(--text)", fontSize: "13px" }}>
+                          <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
+                        </div>
+                        {/* Save to Docs — visible on hover */}
+                        {m.content.length > 100 && (
+                          <button
+                            onClick={() => {
+                              const title = m.content.split("\n")[0].replace(/^[#*\-\s]+/, "").slice(0, 80) || "Untitled";
+                              api.documents.create({
+                                title,
+                                content: m.content,
+                                doc_type: "markdown",
+                                source_agent_id: agent.id,
+                              }).then(() => {
+                                setMessages((prev) => [...prev, {
+                                  id: `doc-saved-${Date.now()}`,
+                                  role: "system",
+                                  content: `📄 Saved to Docs: "${title}"`,
+                                  created_at: new Date().toISOString(),
+                                }]);
+                              }).catch(console.error);
+                            }}
+                            className="opacity-0 group-hover/msg:opacity-100 mt-1 flex items-center gap-1 text-[11px] transition-fast hover:underline"
+                            style={{ color: "var(--text-quiet)" }}
+                          >
+                            <Save className="h-3 w-3" />
+                            Save to Docs
+                          </button>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -909,36 +1011,99 @@ function SchedulesTab({ agentSlug }: { agentSlug: string }) {
   );
 }
 
-function KnowledgeTab({ agentId }: { agentId: string }) {
+type DocFilter = "all" | "generated" | "uploaded";
+const DOC_FILTERS: Array<{ key: DocFilter; label: string }> = [
+  { key: "generated", label: "Generated" },
+  { key: "uploaded", label: "Uploaded" },
+  { key: "all", label: "All" },
+];
+
+function DocsTab({ agentId }: { agentId: string }) {
   const [docs, setDocs] = useState<DocumentItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [filter, setFilter] = useState<DocFilter>("generated");
 
   useEffect(() => {
     api.documents.list(agentId).then(setDocs).catch(console.error).finally(() => setLoading(false));
   }, [agentId]);
 
-  if (loading) return <Spinner />;
-  if (docs.length === 0) return <EmptyState text="No documents from this agent yet" />;
+  const filtered = docs.filter((d) => {
+    if (filter === "all") return true;
+    if (filter === "uploaded") return d.doc_type === "uploaded" || (d.file_path && d.doc_type !== "markdown");
+    // "generated" — everything that's not an upload
+    return d.doc_type !== "uploaded";
+  });
+
+  const relTime = (iso: string) => {
+    const d = Date.now() - new Date(iso).getTime();
+    if (d < 3_600_000) return `${Math.floor(d / 60_000)}m`;
+    if (d < 86_400_000) return `${Math.floor(d / 3_600_000)}h`;
+    return `${Math.floor(d / 86_400_000)}d`;
+  };
+
+  const docIcon = (doc: DocumentItem) => {
+    if (doc.doc_type === "uploaded" || doc.file_path) return "📎";
+    if (doc.doc_type === "slide") return "📊";
+    if (doc.doc_type === "report" || doc.doc_type === "brief") return "📋";
+    return "📄";
+  };
 
   return (
-    <div className="space-y-2">
-      {docs.map((doc) => (
-        <Link
-          key={doc.id}
-          href={`/docs/${doc.id}`}
-          className="flex items-center gap-3 rounded-xl border p-3 transition-smooth hover:shadow-elevation-2"
-          style={{ borderColor: "var(--border)", background: "var(--surface)" }}
-        >
-          <FileText className="h-4 w-4 shrink-0" style={{ color: "var(--text-quiet)" }} />
-          <div className="min-w-0 flex-1">
-            <p className="text-sm font-medium" style={{ color: "var(--text)" }}>{doc.title}</p>
-            <p className="text-xs" style={{ color: "var(--text-quiet)" }}>{doc.doc_type}</p>
-          </div>
-          <span className="text-[10px]" style={{ color: "var(--text-quiet)" }}>
-            {new Date(doc.updated_at).toLocaleDateString()}
-          </span>
-        </Link>
-      ))}
+    <div className="space-y-3">
+      {/* Filter bar */}
+      <div className="flex items-center gap-2">
+        <div className="flex gap-1 rounded-lg border p-0.5" style={{ borderColor: "var(--border)" }}>
+          {DOC_FILTERS.map((f) => (
+            <button
+              key={f.key}
+              onClick={() => setFilter(f.key)}
+              className={cn(
+                "rounded-md px-3 py-1 text-[11px] font-medium transition-fast",
+                filter === f.key
+                  ? "bg-[color:var(--accent-soft)] text-[color:var(--accent)]"
+                  : "text-[color:var(--text-muted)] hover:text-[color:var(--text)]",
+              )}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+        <span className="text-[11px] ml-auto" style={{ color: "var(--text-quiet)" }}>
+          {filtered.length} document{filtered.length !== 1 ? "s" : ""}
+        </span>
+      </div>
+
+      {/* Document list */}
+      {loading ? <Spinner /> : filtered.length === 0 ? (
+        <EmptyState text={filter === "all" ? "No documents yet" : `No ${filter} documents yet`} />
+      ) : (
+        <div className="space-y-1.5">
+          {filtered.map((doc) => (
+            <Link
+              key={doc.id}
+              href={`/docs/${doc.id}`}
+              className="flex items-center gap-3 rounded-xl border px-3 py-2.5 transition-smooth hover:shadow-elevation-2"
+              style={{ borderColor: "var(--border)", background: "var(--surface)" }}
+            >
+              <span className="text-sm shrink-0">{docIcon(doc)}</span>
+              <div className="min-w-0 flex-1">
+                <p className="text-[13px] font-medium truncate" style={{ color: "var(--text)" }}>{doc.title}</p>
+                <div className="flex items-center gap-2 mt-0.5">
+                  <span className="text-[10px]" style={{ color: "var(--text-quiet)" }}>{doc.doc_type}</span>
+                  {doc.file_size && (
+                    <span className="text-[10px]" style={{ color: "var(--text-quiet)" }}>
+                      ({(doc.file_size / 1024).toFixed(0)}KB)
+                    </span>
+                  )}
+                </div>
+              </div>
+              <span className="text-[10px] shrink-0" style={{ color: "var(--text-quiet)" }}>
+                {relTime(doc.updated_at)}
+              </span>
+            </Link>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

@@ -40,6 +40,7 @@ from app.api.events_stream import router as events_stream_router
 from app.api.executive_agents import router as executive_agents_router
 from app.api.global_approvals import router as global_approvals_router
 from app.api.skills_editor import router as skills_editor_router
+from app.api.daily_items import router as daily_items_router
 from app.api.improvements import router as improvements_router
 from app.api.overview import router as overview_router
 from app.api.schedules import router as schedules_router
@@ -579,6 +580,7 @@ api_v1.include_router(documents_router)
 api_v1.include_router(events_stream_router)
 api_v1.include_router(executive_agents_router)
 api_v1.include_router(global_approvals_router)
+api_v1.include_router(daily_items_router)
 api_v1.include_router(improvements_router)
 api_v1.include_router(overview_router)
 api_v1.include_router(schedules_router)

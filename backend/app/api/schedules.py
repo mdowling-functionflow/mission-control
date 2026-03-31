@@ -72,10 +72,14 @@ async def _bridge_request(method: str, path: str, json_body: dict | None = None)
 
 @router.get("")
 async def list_schedules(
+    agent_id: str | None = Query(default=None),
     ctx: OrganizationContext = ORG_MEMBER_DEP,
 ) -> dict | list:
-    """List all cron jobs."""
-    return await _bridge_request("GET", "/cron/list")
+    """List cron jobs, optionally filtered by agent_id."""
+    data = await _bridge_request("GET", "/cron/list")
+    if agent_id and isinstance(data, dict) and "jobs" in data:
+        data["jobs"] = [j for j in data["jobs"] if j.get("agentId") == agent_id]
+    return data
 
 
 @router.get("/status")
