@@ -201,6 +201,7 @@ For each improvement suggestion, use this format:
     current_desc = ""
     current_priority = "normal"
     current_category = "process"
+    current_goal_relevance = ""
 
     for line in lines:
         if line.strip().startswith("### Improvement:"):
@@ -213,6 +214,7 @@ For each improvement suggestion, use this format:
                     description=current_desc.strip(),
                     priority=current_priority,
                     category=current_category,
+                    goal_relevance=current_goal_relevance or None,
                     rationale=f"From weekly audit on {utcnow().strftime('%Y-%m-%d')}",
                 )
                 session.add(imp)
@@ -222,6 +224,7 @@ For each improvement suggestion, use this format:
             current_desc = ""
             current_priority = "normal"
             current_category = "process"
+            current_goal_relevance = ""
         elif current_title:
             if line.strip().startswith("**Priority:**"):
                 val = line.strip().replace("**Priority:**", "").strip().lower()
@@ -231,6 +234,8 @@ For each improvement suggestion, use this format:
                 val = line.strip().replace("**Category:**", "").strip().lower()
                 if val in ("process", "tooling", "communication", "automation"):
                     current_category = val
+            elif line.strip().startswith("**Goal Relevance:**"):
+                current_goal_relevance = line.strip().replace("**Goal Relevance:**", "").strip()
             elif line.strip().startswith("**Description:**"):
                 current_desc = line.strip().replace("**Description:**", "").strip()
             else:
@@ -245,6 +250,7 @@ For each improvement suggestion, use this format:
             description=current_desc.strip(),
             priority=current_priority,
             category=current_category,
+            goal_relevance=current_goal_relevance or None,
             rationale=f"From weekly audit on {utcnow().strftime('%Y-%m-%d')}",
         )
         session.add(imp)

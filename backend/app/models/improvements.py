@@ -30,6 +30,7 @@ class Improvement(QueryModel, table=True):
     # proposed / reviewing / testing / adopted / rejected
     priority: str = Field(default="normal")  # low / normal / high / urgent
     category: str = Field(default="process")  # process / tooling / communication / automation
+    goal_relevance: str | None = Field(default=None, sa_column=Column(Text))
 
     resolved_at: datetime | None = Field(default=None)
     resolution_note: str | None = Field(default=None, sa_column=Column(Text))

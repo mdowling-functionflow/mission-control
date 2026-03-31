@@ -1,6 +1,28 @@
 {
   "runs": [
     {
+      "id": "wb-206ff0b8",
+      "title": "Meeting prep dossier - Conor Norton - 2026-04-01",
+      "prompt": "Meeting prep dossier delivered to normal endpoints and mirrored into Workbench.",
+      "targetLane": "main",
+      "status": "ready",
+      "artifacts": [
+        {
+          "id": "art-f928fa4b",
+          "type": "pdf",
+          "label": "2026-04-01-Conor-Norton-Internship-Meeting.pdf",
+          "filePath": "/Users/michaeldowling/Documents/OpenClaw/Research/Briefs/2026-04-01-Conor-Norton-Internship-Meeting.pdf",
+          "mimeType": "application/pdf",
+          "editable": false,
+          "origin": "agent-output",
+          "createdAt": "2026-03-31T20:07:46+00:00"
+        }
+      ],
+      "summary": "Meeting prep dossier imported into Workbench after normal delivery.",
+      "createdAt": "2026-03-31T20:07:46+00:00",
+      "updatedAt": "2026-03-31T20:07:46+00:00"
+    },
+    {
       "id": "wb-a552d3b7",
       "title": "Meeting prep dossier - Enterprise Ireland - 2026-03-30",
       "prompt": "Meeting prep dossier delivered to normal endpoints and mirrored into Workbench.",

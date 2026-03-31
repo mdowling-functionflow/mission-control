@@ -452,9 +452,11 @@ class CronJobEdit(BaseModel):
     enabled: bool | None = None
 
 
-async def _run_cron_cmd(args: list[str], timeout: int = 30) -> dict | list | str:
-    """Run an openclaw cron command and return parsed JSON output."""
-    cmd = ["openclaw", "cron", *args, "--json"]
+async def _run_cron_cmd(args: list[str], timeout: int = 30, json_flag: bool = True) -> dict | list | str:
+    """Run an openclaw cron command and return parsed output."""
+    cmd = ["openclaw", "cron", *args]
+    if json_flag:
+        cmd.append("--json")
     try:
         proc = await asyncio.create_subprocess_exec(
             *cmd,
@@ -545,7 +547,7 @@ async def cron_edit(job_id: str, body: CronJobEdit):
         args += ["--enable"]
     elif body.enabled is False:
         args += ["--disable"]
-    return await _run_cron_cmd(args)
+    return await _run_cron_cmd(args, json_flag=False)
 
 
 @app.delete("/cron/remove/{job_id}", dependencies=[Depends(verify_token)])

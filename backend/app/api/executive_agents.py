@@ -302,6 +302,114 @@ async def seed_skill_allocations(
     return {"created": created_count, "message": f"Seeded {created_count} skill allocations"}
 
 
+@router.post("/reconcile")
+async def reconcile_agents(
+    apply: bool = Query(default=False),
+    session: AsyncSession = SESSION_DEP,
+    ctx: OrganizationContext = ORG_MEMBER_DEP,
+) -> dict:
+    """Read PROFILE.json from each agent workspace via bridge, compare with DB, return diffs.
+    With apply=true, updates DB from file values.
+    """
+    import httpx
+    import json as json_lib
+    from app.core.logging import get_logger
+    logger = get_logger(__name__)
+
+    agents = await ExecutiveAgent.objects.filter_by(
+        organization_id=ctx.organization.id,
+    ).all(session)
+
+    diffs: list[dict] = []
+    applied = 0
+    skipped = 0
+    sync_fields = ["display_name", "persona_name", "executive_role", "avatar_emoji", "goal", "agent_type", "sidebar_visible"]
+
+    if not settings.bridge_url:
+        return {"diffs": [], "applied": 0, "skipped": 0, "message": "No bridge configured"}
+
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        for agent in agents:
+            try:
+                resp = await client.get(
+                    f"{settings.bridge_url.rstrip('/')}/agent-files/{agent.openclaw_agent_id}/PROFILE.json",
+                    headers={"X-Bridge-Token": settings.bridge_token},
+                )
+                if resp.status_code != 200:
+                    skipped += 1
+                    continue
+                file_content = resp.json().get("content", "")
+                if not file_content:
+                    skipped += 1
+                    continue
+                profile = json_lib.loads(file_content)
+            except Exception as exc:
+                logger.debug("reconcile.skip", agent=agent.openclaw_agent_id, error=str(exc)[:100])
+                skipped += 1
+                continue
+
+            for field in sync_fields:
+                file_val = profile.get(field)
+                db_val = getattr(agent, field, None)
+                # Normalize for comparison
+                if file_val is None and db_val is None:
+                    continue
+                if str(file_val) == str(db_val):
+                    continue
+                diffs.append({
+                    "agent_id": str(agent.id),
+                    "agent": agent.display_name,
+                    "field": field,
+                    "db_value": str(db_val) if db_val is not None else None,
+                    "file_value": str(file_val) if file_val is not None else None,
+                })
+                if apply and file_val is not None:
+                    setattr(agent, field, file_val)
+                    applied += 1
+
+            if apply:
+                agent.updated_at = utcnow()
+                session.add(agent)
+
+    if apply:
+        await session.commit()
+
+    return {
+        "diffs": diffs,
+        "applied": applied,
+        "skipped": skipped,
+    }
+
+
+@router.get("/all-skill-mappings")
+async def list_all_skill_mappings(
+    session: AsyncSession = SESSION_DEP,
+    ctx: OrganizationContext = ORG_MEMBER_DEP,
+) -> list[dict]:
+    """All skill mappings across all agents, with agent display metadata."""
+    agents = await ExecutiveAgent.objects.filter_by(
+        organization_id=ctx.organization.id,
+    ).all(session)
+    agent_map = {a.id: a for a in agents}
+
+    all_mappings = []
+    for agent in agents:
+        mappings = await AgentSkillMapping.objects.filter_by(
+            executive_agent_id=agent.id,
+        ).all(session)
+        for m in mappings:
+            all_mappings.append({
+                "id": str(m.id),
+                "skill_path": m.skill_path,
+                "relevance": m.relevance,
+                "agent_id": str(agent.id),
+                "agent_display_name": agent.display_name,
+                "agent_emoji": agent.avatar_emoji,
+            })
+
+    return all_mappings
+
+
 @router.post("/create", response_model=ExecutiveAgentRead, status_code=status.HTTP_201_CREATED)
 async def create_executive_agent(
     body: ExecutiveAgentCreate,

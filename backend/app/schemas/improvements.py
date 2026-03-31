@@ -15,6 +15,7 @@ class ImprovementCreate(SQLModel):
     executive_agent_id: UUID | None = None
     priority: str = "normal"
     category: str = "process"
+    goal_relevance: str | None = None
 
 
 class ImprovementUpdate(SQLModel):
@@ -23,6 +24,7 @@ class ImprovementUpdate(SQLModel):
     rationale: str | None = None
     status: str | None = None
     priority: str | None = None
+    goal_relevance: str | None = None
     resolution_note: str | None = None
 
 
@@ -35,6 +37,7 @@ class ImprovementRead(SQLModel):
     title: str
     description: str | None = None
     rationale: str | None = None
+    goal_relevance: str | None = None
     status: str
     priority: str
     category: str

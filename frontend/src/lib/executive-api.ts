@@ -428,6 +428,15 @@ export const api = {
       ),
     improvements: (id: string) =>
       execFetch<AgentImprovement[]>(`/api/v1/executive-agents/${id}/improvements`),
+    reconcile: (apply = false) =>
+      execFetch<{ diffs: Array<{ agent_id: string; agent: string; field: string; db_value: string | null; file_value: string | null }>; applied: number; skipped: number }>(
+        `/api/v1/executive-agents/reconcile${apply ? "?apply=true" : ""}`,
+        { method: "POST" },
+      ),
+    allSkillMappings: () =>
+      execFetch<Array<{ id: string; skill_path: string; relevance: string; agent_id: string; agent_display_name: string; agent_emoji: string | null }>>(
+        "/api/v1/executive-agents/all-skill-mappings",
+      ),
   },
 
   approvals: {
