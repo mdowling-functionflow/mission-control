@@ -114,17 +114,84 @@ export default function DocDetailPage() {
                   </button>
                 </div>
               </div>
-            ) : doc.file_path && doc.mime_type?.includes("pdf") ? (
-              /* PDF preview */
+            ) : doc.file_path ? (
+              /* File preview — inline for popular types, download fallback */
               <div className="p-4">
-                <div className="rounded-lg border overflow-hidden" style={{ borderColor: "var(--border)" }}>
-                  <iframe
-                    src={api.documents.downloadUrl(doc.id)}
-                    className="w-full"
-                    style={{ height: "600px" }}
-                    title={doc.title}
-                  />
-                </div>
+                {(() => {
+                  const mime = doc.mime_type || "";
+                  const name = (doc.title || "").toLowerCase();
+                  const downloadUrl = api.documents.downloadUrl(doc.id);
+                  const isImage = mime.startsWith("image/");
+                  const isPdf = mime.includes("pdf");
+                  const isVideo = mime.startsWith("video/");
+                  const isAudio = mime.startsWith("audio/");
+                  const isText = mime.startsWith("text/") || mime.includes("json") || mime.includes("xml") || mime.includes("csv");
+                  // Office docs / Google-viewable via Google Docs Viewer
+                  const isOffice = [
+                    "application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    "application/vnd.ms-excel", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    "application/vnd.ms-powerpoint", "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                  ].includes(mime) || /\.(docx?|xlsx?|pptx?|csv)$/i.test(name);
+
+                  if (isImage) {
+                    return (
+                      <div className="flex flex-col items-center gap-3">
+                        <img src={downloadUrl} alt={doc.title} className="max-w-full max-h-[600px] rounded-lg border" style={{ borderColor: "var(--border)" }} />
+                      </div>
+                    );
+                  }
+                  if (isPdf) {
+                    return (
+                      <div className="rounded-lg border overflow-hidden" style={{ borderColor: "var(--border)" }}>
+                        <iframe src={downloadUrl} className="w-full" style={{ height: "700px" }} title={doc.title} />
+                      </div>
+                    );
+                  }
+                  if (isOffice) {
+                    return (
+                      <div className="rounded-lg border overflow-hidden" style={{ borderColor: "var(--border)" }}>
+                        <iframe
+                          src={`https://docs.google.com/gview?url=${encodeURIComponent(downloadUrl)}&embedded=true`}
+                          className="w-full"
+                          style={{ height: "700px" }}
+                          title={doc.title}
+                        />
+                      </div>
+                    );
+                  }
+                  if (isVideo) {
+                    return (
+                      <video controls className="w-full max-h-[600px] rounded-lg">
+                        <source src={downloadUrl} type={mime} />
+                        Your browser does not support video playback.
+                      </video>
+                    );
+                  }
+                  if (isAudio) {
+                    return (
+                      <div className="flex flex-col items-center gap-3 py-8">
+                        <FileText className="h-12 w-12" style={{ color: "var(--text-quiet)" }} />
+                        <p className="text-sm font-medium" style={{ color: "var(--text)" }}>{doc.title}</p>
+                        <audio controls className="w-full max-w-md">
+                          <source src={downloadUrl} type={mime} />
+                        </audio>
+                      </div>
+                    );
+                  }
+                  if (isText) {
+                    return <TextFilePreview url={downloadUrl} />;
+                  }
+                  // Fallback — download only
+                  return (
+                    <div className="py-8 text-center">
+                      <FileText className="mx-auto h-12 w-12 mb-3" style={{ color: "var(--text-quiet)" }} />
+                      <p className="text-sm font-medium" style={{ color: "var(--text)" }}>{doc.title}</p>
+                      <p className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
+                        {doc.mime_type} {doc.file_size ? `· ${(doc.file_size / 1024).toFixed(0)}KB` : ""}
+                      </p>
+                    </div>
+                  );
+                })()}
                 <a
                   href={api.documents.downloadUrl(doc.id)}
                   download
@@ -132,22 +199,6 @@ export default function DocDetailPage() {
                   style={{ borderColor: "var(--border)", color: "var(--text-muted)" }}
                 >
                   <Download className="h-3.5 w-3.5" /> Download
-                </a>
-              </div>
-            ) : doc.file_path ? (
-              /* Non-markdown file — download only */
-              <div className="p-6 text-center">
-                <FileText className="mx-auto h-12 w-12 mb-3" style={{ color: "var(--text-quiet)" }} />
-                <p className="text-sm font-medium" style={{ color: "var(--text)" }}>{doc.title}</p>
-                <p className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
-                  {doc.mime_type} · {doc.file_size ? `${(doc.file_size / 1024).toFixed(0)}KB` : ""}
-                </p>
-                <a
-                  href={api.documents.downloadUrl(doc.id)}
-                  download
-                  className="mt-4 inline-flex items-center gap-1.5 rounded-lg bg-[color:var(--accent)] px-4 py-2 text-sm font-medium text-white hover:opacity-90"
-                >
-                  <Download className="h-4 w-4" /> Download File
                 </a>
               </div>
             ) : (
@@ -165,5 +216,22 @@ export default function DocDetailPage() {
         </div>
       </SignedIn>
     </DashboardPageLayout>
+  );
+}
+
+/** Fetches and renders plain text/CSV/JSON files inline. */
+function TextFilePreview({ url }: { url: string }) {
+  const [text, setText] = useState<string | null>(null);
+  useEffect(() => {
+    fetch(url).then((r) => r.text()).then(setText).catch(() => setText("(Could not load file)"));
+  }, [url]);
+  if (text === null) return <div className="p-4 text-sm" style={{ color: "var(--text-quiet)" }}>Loading...</div>;
+  return (
+    <pre
+      className="overflow-auto rounded-lg border p-4 text-xs font-mono whitespace-pre-wrap max-h-[600px]"
+      style={{ borderColor: "var(--border)", background: "var(--surface-muted)", color: "var(--text)" }}
+    >
+      {text}
+    </pre>
   );
 }
