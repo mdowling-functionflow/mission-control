@@ -26,6 +26,7 @@ class ExecutiveAgent(QueryModel, table=True):
     display_name: str  # e.g. "Sales"
     executive_role: str  # e.g. "Head of Sales"
     role_description: str | None = Field(default=None, sa_column=Column(Text))
+    goal: str | None = Field(default=None, sa_column=Column(Text))  # current operating goal
     avatar_emoji: str | None = Field(default=None)
     persona_name: str | None = Field(default=None)  # e.g. "Piper" — friendly identity name
 

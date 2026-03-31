@@ -34,6 +34,7 @@ export interface ExecutiveAgent {
   display_name: string;
   executive_role: string;
   role_description: string | null;
+  goal: string | null;
   avatar_emoji: string | null;
   persona_name: string | null;
   agent_type: string; // "primary" | "helper"
@@ -395,7 +396,14 @@ export const api = {
   overview: () => execFetch<OverviewData>("/api/v1/overview"),
 
   agents: {
-    list: () => execFetch<ExecutiveAgent[]>("/api/v1/executive-agents"),
+    list: (filters?: { agent_type?: string; parent_agent_id?: string; sidebar_visible?: boolean }) => {
+      const params = new URLSearchParams();
+      if (filters?.agent_type) params.set("agent_type", filters.agent_type);
+      if (filters?.parent_agent_id) params.set("parent_agent_id", filters.parent_agent_id);
+      if (filters?.sidebar_visible !== undefined) params.set("sidebar_visible", String(filters.sidebar_visible));
+      const qs = params.toString();
+      return execFetch<ExecutiveAgent[]>(`/api/v1/executive-agents${qs ? `?${qs}` : ""}`);
+    },
     get: (id: string) => execFetch<ExecutiveAgent>(`/api/v1/executive-agents/${id}`),
     seed: () => execFetch<ExecutiveAgent[]>("/api/v1/executive-agents/seed", { method: "POST" }),
     create: (data: {

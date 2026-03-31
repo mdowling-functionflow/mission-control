@@ -128,6 +128,7 @@ async def seed_executive_team(
             "persona_name": "Mario",
             "executive_role": "Crew Captain",
             "avatar_emoji": "🍄",
+            "goal": "Keep all lanes moving, nothing falls through the cracks",
             "role_description": "Front door and orchestrator for Michael's full agent bench. Connects dots across company, academic, and life lanes; delegates cleanly; synthesizes; protects follow-through.",
         },
         {
@@ -136,6 +137,7 @@ async def seed_executive_team(
             "persona_name": "Piper",
             "executive_role": "Revenue Captain",
             "avatar_emoji": "💼",
+            "goal": "Increase high-quality follow-up and improve meeting conversion",
             "role_description": "Sales execution specialist focused on pipeline truth, meeting prep, follow-up discipline, commercial signal, and deal momentum.",
         },
         {
@@ -144,6 +146,7 @@ async def seed_executive_team(
             "persona_name": "Iris",
             "executive_role": "Fundraising Chief of Staff",
             "avatar_emoji": "📈",
+            "goal": "Maintain investor thread momentum and raise-readiness",
             "role_description": "Investor readiness specialist focused on investor threads, diligence completeness, narrative coherence, and raise-readiness.",
         },
         {
@@ -152,6 +155,7 @@ async def seed_executive_team(
             "persona_name": "June",
             "executive_role": "People Steward",
             "avatar_emoji": "🤝",
+            "goal": "Reduce candidate drift and keep hiring pipeline honest",
             "role_description": "People and hiring operator focused on candidate momentum, interview prep, onboarding discipline, and humane process quality.",
         },
         {
@@ -160,6 +164,7 @@ async def seed_executive_team(
             "persona_name": "Atlas",
             "executive_role": "Strategy Cartographer",
             "avatar_emoji": "🧭",
+            "goal": "Surface ignored high-value decisions earlier",
             "role_description": "Strategy specialist focused on decision framing, board readiness, cross-functional patterns, and risk clarity.",
         },
         {
@@ -168,6 +173,7 @@ async def seed_executive_team(
             "persona_name": "Finch",
             "executive_role": "Academic Steward",
             "avatar_emoji": "🎓",
+            "goal": "Reduce inbox drift and keep teaching/admin calm and current",
             "role_description": "DCU/academic lane specialist for professor inbox, taught-module admin, supervision visibility, deadlines, and clean academic follow-through.",
         },
         {
@@ -176,6 +182,7 @@ async def seed_executive_team(
             "persona_name": "Hazel",
             "executive_role": "Life Concierge",
             "avatar_emoji": "🏡",
+            "goal": "Minimize personal admin friction and scheduling overhead",
             "role_description": "Personal life-admin and logistics specialist focused on reminders, scheduling friction, errands, travel, and household/admin tidiness.",
         },
     ]
@@ -195,6 +202,10 @@ async def seed_executive_team(
             # Populate persona_name if missing
             if not existing.persona_name and defn.get("persona_name"):
                 existing.persona_name = defn["persona_name"]
+                updated = True
+            # Populate goal if missing
+            if not existing.goal and defn.get("goal"):
+                existing.goal = defn["goal"]
                 updated = True
             if updated:
                 existing.updated_at = utcnow()
@@ -393,7 +404,7 @@ async def update_executive_agent(
     await session.refresh(agent)
 
     # Sync identity fields back to OpenClaw IDENTITY.md via bridge
-    identity_fields = {"display_name", "executive_role", "avatar_emoji", "persona_name", "role_description"}
+    identity_fields = {"display_name", "executive_role", "avatar_emoji", "persona_name", "role_description", "goal"}
     if identity_fields & set(update_data.keys()):
         await _sync_identity_to_openclaw(agent)
 
@@ -765,6 +776,8 @@ async def _sync_identity_to_openclaw(agent: ExecutiveAgent) -> None:
         lines.append(f"- **Role:** {agent.executive_role}")
     if agent.avatar_emoji:
         lines.append(f"- **Emoji:** {agent.avatar_emoji}")
+    if agent.goal:
+        lines.append(f"- **Goal:** {agent.goal}")
     if agent.role_description:
         lines.append(f"- **Description:** {agent.role_description}")
     lines.append("")
@@ -805,5 +818,24 @@ async def _sync_identity_to_openclaw(agent: ExecutiveAgent) -> None:
                     logger.info("identity.synced", agent=agent.openclaw_agent_id)
                 else:
                     logger.warning("identity.sync_failed", agent=agent.openclaw_agent_id, status=write_resp.status_code)
+
+                # Also write PROFILE.json — machine-readable structured profile
+                import json as json_lib
+                profile = {
+                    "display_name": agent.display_name,
+                    "persona_name": agent.persona_name,
+                    "executive_role": agent.executive_role,
+                    "avatar_emoji": agent.avatar_emoji,
+                    "agent_type": agent.agent_type,
+                    "goal": agent.goal,
+                    "sidebar_visible": agent.sidebar_visible,
+                }
+                profile_resp = await client.put(
+                    f"{settings.bridge_url.rstrip('/')}/agent-files/{agent.openclaw_agent_id}/PROFILE.json",
+                    headers={"X-Bridge-Token": settings.bridge_token},
+                    json={"content": json_lib.dumps(profile, indent=2)},
+                )
+                if profile_resp.status_code == 200:
+                    logger.info("profile.synced", agent=agent.openclaw_agent_id)
         except Exception as exc:
             logger.warning("identity.sync_error", agent=agent.openclaw_agent_id, error=str(exc)[:200])

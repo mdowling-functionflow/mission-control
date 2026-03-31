@@ -177,7 +177,7 @@ export default function AgentWorkspacePage() {
             {activeTab === "skills" && <SkillsTab agentId={agent.id} />}
             {activeTab === "schedules" && <SchedulesTab agentSlug={slug} />}
             {activeTab === "docs" && <DocsTab agentId={agent.id} />}
-            {activeTab === "improvements" && <ImprovementsTab agentId={agent.id} />}
+            {activeTab === "improvements" && <ImprovementsTab agentId={agent.id} agent={agent} />}
             {activeTab === "approvals" && <ApprovalsTab />}
             {activeTab === "review" && <WeeklyReviewTab />}
           </div>
@@ -448,6 +448,11 @@ function ChatTab({ agent }: { agent: ExecutiveAgent }) {
                   <span className="text-[12px] font-semibold" style={{ color: "var(--text)" }}>
                     Today
                   </span>
+                  {agent.goal && (
+                    <span className="text-[10px] truncate max-w-[200px]" style={{ color: "var(--text-quiet)" }}>
+                      · {agent.goal}
+                    </span>
+                  )}
                   <span className="text-[10px] rounded-full px-1.5 py-0.5 font-medium" style={{ background: "var(--accent-soft)", color: "var(--accent)" }}>
                     {dailyItems.filter((i) => i.status === "pending").length}
                   </span>
@@ -857,6 +862,54 @@ function AgentTab({ agent, slug }: { agent: ExecutiveAgent; slug: string }) {
           )}
         </div>
       )}
+
+      {/* Goal */}
+      {agent.goal && (
+        <div className="rounded-xl border px-4 py-3" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: "var(--text-quiet)" }}>Goal</span>
+          </div>
+          <p className="text-[13px]" style={{ color: "var(--text)" }}>{agent.goal}</p>
+        </div>
+      )}
+
+      {/* Helper agents — only for primary agents */}
+      {agent.agent_type === "primary" && <HelperAgentsSection parentAgentId={agent.id} />}
+    </div>
+  );
+}
+
+function HelperAgentsSection({ parentAgentId }: { parentAgentId: string }) {
+  const [helpers, setHelpers] = useState<ExecutiveAgent[]>([]);
+  useEffect(() => {
+    api.agents.list({ agent_type: "helper", parent_agent_id: parentAgentId }).then(setHelpers).catch(() => {});
+  }, [parentAgentId]);
+
+  if (helpers.length === 0) return null;
+  return (
+    <div className="rounded-xl border px-4 py-3" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
+      <p className="text-[10px] font-semibold uppercase tracking-widest mb-2" style={{ color: "var(--text-quiet)" }}>Helper Agents</p>
+      <div className="space-y-1.5">
+        {helpers.map((h) => (
+          <Link
+            key={h.id}
+            href={`/agent/${h.openclaw_agent_id}`}
+            className="flex items-center gap-2 rounded-lg px-2 py-1.5 transition-fast hover:bg-[color:var(--surface-muted)]"
+          >
+            <span className="text-sm">{h.avatar_emoji || "🤖"}</span>
+            <div className="min-w-0 flex-1">
+              <p className="text-[12px] font-medium" style={{ color: "var(--text)" }}>{h.display_name}</p>
+              <p className="text-[10px]" style={{ color: "var(--text-quiet)" }}>{h.executive_role}</p>
+            </div>
+            <span className={cn(
+              "rounded px-1.5 py-0.5 text-[10px] font-medium",
+              h.status === "active" ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-500",
+            )}>
+              {h.status}
+            </span>
+          </Link>
+        ))}
+      </div>
     </div>
   );
 }
@@ -971,7 +1024,7 @@ function SchedulesTab({ agentSlug }: { agentSlug: string }) {
   useEffect(() => {
     api.schedules.list().then((resp) => {
       const all = resp.jobs || [];
-      const mine = all.filter((j) => j.agentId === agentSlug);
+      const mine = all.filter((j: any) => j.agentId === agentSlug);
       setJobs(mine);
     }).catch(console.error).finally(() => setLoading(false));
   }, [agentSlug]);
@@ -979,31 +1032,65 @@ function SchedulesTab({ agentSlug }: { agentSlug: string }) {
   if (loading) return <Spinner />;
   if (jobs.length === 0) return <EmptyState text="No schedules for this agent" />;
 
+  const relTime = (ms: number) => {
+    if (!ms) return "";
+    const d = Date.now() - ms;
+    if (d < 3_600_000) return `${Math.floor(d / 60_000)}m ago`;
+    if (d < 86_400_000) return `${Math.floor(d / 3_600_000)}h ago`;
+    return `${Math.floor(d / 86_400_000)}d ago`;
+  };
+
   return (
     <div className="space-y-2">
-      {jobs.map((job) => (
-        <div
-          key={job.id}
-          className="flex items-center gap-3 rounded-xl border p-3"
-          style={{ borderColor: "var(--border)", background: "var(--surface)", opacity: job.enabled ? 1 : 0.5 }}
-        >
-          <Clock className="h-4 w-4 shrink-0" style={{ color: "var(--text-quiet)" }} />
-          <div className="min-w-0 flex-1">
-            <p className="text-sm font-medium" style={{ color: "var(--text)" }}>{job.name}</p>
-            {job.description && <p className="text-xs truncate" style={{ color: "var(--text-muted)" }}>{job.description}</p>}
-            <p className="text-[11px] mt-0.5" style={{ color: "var(--text-quiet)" }}>
-              {job.schedule?.expr || job.schedule?.every || "No schedule"}
-              {job.schedule?.tz ? ` (${job.schedule.tz})` : ""}
-            </p>
+      {jobs.map((job: any) => {
+        const state = job.state || {};
+        const lastStatus = state.lastStatus;
+        const lastRunMs = state.lastRunAtMs;
+        const errors = state.consecutiveErrors || 0;
+        return (
+          <div
+            key={job.id}
+            className="flex items-center gap-3 rounded-xl border p-3"
+            style={{ borderColor: "var(--border)", background: "var(--surface)", opacity: job.enabled ? 1 : 0.5 }}
+          >
+            {/* Health indicator */}
+            <span className="shrink-0">
+              {!lastStatus ? (
+                <Circle className="h-3 w-3" style={{ color: "var(--text-quiet)" }} />
+              ) : lastStatus === "ok" || lastStatus === "success" ? (
+                <CheckCircle2 className="h-3 w-3 text-emerald-500" />
+              ) : (
+                <XCircle className="h-3 w-3 text-red-500" />
+              )}
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-medium" style={{ color: "var(--text)" }}>{job.name}</p>
+              {job.description && <p className="text-xs truncate" style={{ color: "var(--text-muted)" }}>{job.description}</p>}
+              <div className="flex items-center gap-2 mt-0.5">
+                <span className="text-[11px]" style={{ color: "var(--text-quiet)" }}>
+                  {job.schedule?.expr || job.schedule?.every || "No schedule"}
+                </span>
+                {lastRunMs > 0 && (
+                  <span className="text-[10px]" style={{ color: "var(--text-quiet)" }}>
+                    · ran {relTime(lastRunMs)}
+                  </span>
+                )}
+                {errors > 0 && (
+                  <span className="text-[10px] rounded px-1 font-medium bg-red-50 text-red-600 dark:bg-red-900/20 dark:text-red-400">
+                    {errors} error{errors > 1 ? "s" : ""}
+                  </span>
+                )}
+              </div>
+            </div>
+            <span className={cn(
+              "rounded px-1.5 py-0.5 text-[10px] font-medium",
+              job.enabled ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400" : "bg-slate-100 text-slate-500",
+            )}>
+              {job.enabled ? "Active" : "Disabled"}
+            </span>
           </div>
-          <span className={cn(
-            "rounded px-1.5 py-0.5 text-[10px] font-medium",
-            job.enabled ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400" : "bg-slate-100 text-slate-500",
-          )}>
-            {job.enabled ? "Active" : "Disabled"}
-          </span>
-        </div>
-      ))}
+        );
+      })}
       <Link href="/schedules" className="text-xs" style={{ color: "var(--accent)" }}>
         Manage all schedules →
       </Link>
@@ -1108,36 +1195,76 @@ function DocsTab({ agentId }: { agentId: string }) {
   );
 }
 
-function ImprovementsTab({ agentId }: { agentId: string }) {
+function ImprovementsTab({ agentId, agent }: { agentId: string; agent: ExecutiveAgent }) {
   const [items, setItems] = useState<AgentImprovement[]>([]);
   const [loading, setLoading] = useState(true);
+  const [auditing, setAuditing] = useState(false);
 
   useEffect(() => {
     api.agents.improvements(agentId).then(setItems).catch(console.error).finally(() => setLoading(false));
   }, [agentId]);
 
-  if (loading) return <Spinner />;
-  if (items.length === 0) return <EmptyState text="No improvements proposed by this agent" />;
+  const handleAudit = async () => {
+    setAuditing(true);
+    try {
+      await api.improvements.audit(agentId);
+      // Refresh improvements list
+      const updated = await api.agents.improvements(agentId);
+      setItems(updated);
+    } catch (e) { console.error(e); }
+    finally { setAuditing(false); }
+  };
 
   return (
-    <div className="space-y-2">
-      {items.map((i) => (
-        <div key={i.id} className="rounded-xl border p-3" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
-          <div className="flex items-center gap-2">
-            <Lightbulb className="h-4 w-4 shrink-0" style={{ color: "var(--text-quiet)" }} />
-            <p className="text-sm font-medium flex-1" style={{ color: "var(--text)" }}>{i.title}</p>
-            <span className={cn(
-              "rounded-full px-1.5 py-0.5 text-[10px] font-medium",
-              i.status === "proposed" && "bg-blue-100 text-blue-700",
-              i.status === "adopted" && "bg-emerald-100 text-emerald-700",
-              i.status === "rejected" && "bg-red-100 text-red-700",
-            )}>
-              {i.status}
-            </span>
-          </div>
-          {i.description && <p className="text-xs mt-1 ml-6" style={{ color: "var(--text-muted)" }}>{i.description}</p>}
+    <div className="space-y-4">
+      {/* Goal banner */}
+      {agent.goal && (
+        <div className="rounded-xl border px-4 py-3" style={{ borderColor: "var(--border)", background: "var(--surface-muted)" }}>
+          <p className="text-[10px] font-semibold uppercase tracking-widest mb-1" style={{ color: "var(--text-quiet)" }}>Current Goal</p>
+          <p className="text-[13px] font-medium" style={{ color: "var(--text)" }}>{agent.goal}</p>
         </div>
-      ))}
+      )}
+
+      {/* Audit button */}
+      <div className="flex items-center gap-3">
+        <button
+          onClick={handleAudit}
+          disabled={auditing}
+          className="flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-medium transition-fast disabled:opacity-40"
+          style={{ background: "var(--accent-soft)", color: "var(--accent)" }}
+        >
+          <RefreshCw className={cn("h-3.5 w-3.5", auditing && "animate-spin")} />
+          {auditing ? "Running audit..." : "Run Weekly Audit"}
+        </button>
+        <Link href="/improvements" className="text-xs" style={{ color: "var(--text-quiet)" }}>
+          View all improvements →
+        </Link>
+      </div>
+
+      {/* Improvements list */}
+      {loading ? <Spinner /> : items.length === 0 ? (
+        <EmptyState text="No improvements proposed yet. Run an audit to generate suggestions." />
+      ) : (
+        <div className="space-y-2">
+          {items.map((i) => (
+            <div key={i.id} className="rounded-xl border p-3" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
+              <div className="flex items-center gap-2">
+                <Lightbulb className="h-4 w-4 shrink-0" style={{ color: "var(--text-quiet)" }} />
+                <p className="text-sm font-medium flex-1" style={{ color: "var(--text)" }}>{i.title}</p>
+                <span className={cn(
+                  "rounded-full px-1.5 py-0.5 text-[10px] font-medium",
+                  i.status === "proposed" && "bg-blue-100 text-blue-700",
+                  i.status === "adopted" && "bg-emerald-100 text-emerald-700",
+                  i.status === "rejected" && "bg-red-100 text-red-700",
+                )}>
+                  {i.status}
+                </span>
+              </div>
+              {i.description && <p className="text-xs mt-1 ml-6" style={{ color: "var(--text-muted)" }}>{i.description}</p>}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

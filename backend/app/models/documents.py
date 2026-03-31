@@ -26,6 +26,8 @@ class Document(QueryModel, table=True):
     source_agent_id: UUID | None = Field(
         default=None, foreign_key="executive_agents.id", index=True
     )
+    origin: str = Field(default="manual")  # manual / uploaded / generated / imported / audit
+    source_thread_id: UUID | None = Field(default=None, index=True)  # link back to chat thread
 
     # File-backed document fields
     file_path: str | None = Field(default=None, sa_column=Column(Text))

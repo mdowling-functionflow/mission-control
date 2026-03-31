@@ -151,16 +151,19 @@ async def run_weekly_audit(
     if not exec_agent:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
 
-    # Build audit prompt
-    audit_prompt = f"""You are running your weekly self-audit as {exec_agent.display_name} ({exec_agent.executive_role}).
+    # Build goal-aware audit prompt
+    goal_line = f"\nYour current goal: {exec_agent.goal}" if exec_agent.goal else ""
+    audit_prompt = f"""You are running your weekly self-audit as {exec_agent.display_name} ({exec_agent.executive_role}).{goal_line}
 
-Review your recent work this week and produce a structured audit report covering:
+Review your lane's work this week and produce a structured audit report covering:
 
-1. **Tasks completed** — what did you accomplish this week?
-2. **Key outputs** — what documents, briefs, or artifacts were produced?
-3. **Risks identified** — what risks or bottlenecks are you seeing?
-4. **Friction points** — what recurring friction or inefficiencies did you notice?
-5. **Improvement suggestions** — what 2-3 specific things should we do better next week?
+1. **Goal progress** — how did your work this week advance your goal? What moved forward, what stalled?
+2. **Tasks completed** — what did you accomplish this week?
+3. **Key outputs** — what documents, briefs, or artifacts were produced?
+4. **Risks identified** — what risks or bottlenecks are you seeing?
+5. **Friction points** — what recurring friction or inefficiencies did you notice?
+6. **What you learned** — what insights emerged this week?
+7. **Improvement suggestions** — what 2-3 specific things should we do better next week?
 
 Format your response as a clear markdown document.
 
@@ -168,6 +171,7 @@ For each improvement suggestion, use this format:
 ### Improvement: [Title]
 **Priority:** [high/normal/low]
 **Category:** [process/tooling/communication/automation]
+**Goal Relevance:** [how this advances the stated goal]
 **Description:** [What should change and why]
 """
 
@@ -184,6 +188,7 @@ For each improvement suggestion, use this format:
         content=agent_response,
         doc_type="memo",
         source_agent_id=agent_id,
+        origin="audit",
         status="published",
     )
     session.add(doc)
@@ -244,6 +249,31 @@ For each improvement suggestion, use this format:
         )
         session.add(imp)
         improvements_created += 1
+
+    # Notify via chat — add system message to agent's most recent thread
+    from app.models.chat_threads import ChatThread
+    from app.models.agent_messages import AgentMessage
+    latest_thread_stmt = (
+        select(ChatThread)
+        .where(
+            col(ChatThread.organization_id) == ctx.organization.id,
+            col(ChatThread.executive_agent_id) == agent_id,
+            col(ChatThread.is_active) == True,
+        )
+        .order_by(col(ChatThread.updated_at).desc())
+        .limit(1)
+    )
+    latest_thread_result = await session.exec(latest_thread_stmt)
+    latest_thread = latest_thread_result.first()
+    if latest_thread:
+        notify_msg = AgentMessage(
+            organization_id=ctx.organization.id,
+            executive_agent_id=agent_id,
+            thread_id=latest_thread.id,
+            role="system",
+            content=f"📊 Weekly improvement report ready — {improvements_created} improvement{'s' if improvements_created != 1 else ''} proposed. View in Improvements tab.",
+        )
+        session.add(notify_msg)
 
     await session.commit()
     await session.refresh(doc)

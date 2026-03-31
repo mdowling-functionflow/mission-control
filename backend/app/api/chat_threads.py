@@ -383,13 +383,25 @@ async def upload_thread_attachment(
         organization_id=ctx.organization.id,
         title=file.filename or "Untitled upload",
         doc_type="uploaded",
+        origin="uploaded",
         source_agent_id=thread.executive_agent_id,
+        source_thread_id=thread_id,
         file_path=attachment_meta.get("path") if attachment_meta else None,
         mime_type=file.content_type,
         file_size=attachment_meta.get("size") if attachment_meta else None,
         status="published",
     )
     session.add(doc)
+
+    # System message confirming doc saved
+    sys_msg = AgentMessage(
+        organization_id=ctx.organization.id,
+        executive_agent_id=thread.executive_agent_id,
+        thread_id=thread_id,
+        role="system",
+        content=f"📄 {file.filename} saved to Docs",
+    )
+    session.add(sys_msg)
 
     thread.updated_at = utcnow()
     session.add(thread)

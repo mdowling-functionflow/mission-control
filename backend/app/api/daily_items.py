@@ -161,10 +161,34 @@ async def generate_daily_items(
             created_items.extend(existing)
             continue
 
+        # Gather context: allocated skills + recent docs
+        from app.models.agent_skill_mappings import AgentSkillMapping
+        from app.models.documents import Document
+
+        skill_mappings = await AgentSkillMapping.objects.filter_by(
+            executive_agent_id=agent.id,
+        ).all(session)
+        skill_names = [m.skill_path for m in skill_mappings[:10]]
+
+        recent_docs_stmt = (
+            select(Document)
+            .where(col(Document.source_agent_id) == agent.id)
+            .order_by(col(Document.updated_at).desc())
+            .limit(3)
+        )
+        recent_docs_result = await session.exec(recent_docs_stmt)
+        recent_docs = recent_docs_result.all()
+        doc_context = ", ".join(f"{d.title} ({d.doc_type})" for d in recent_docs) if recent_docs else "none"
+
         prompt = (
             f"You are {agent.persona_name or agent.display_name}, {agent.executive_role}.\n"
+            f"Your goal: {agent.goal or 'Not set'}\n"
+            f"Your capabilities: {', '.join(skill_names) if skill_names else 'general'}\n"
+            f"Current focus: {agent.current_focus or 'Not set'}\n"
+            f"Recent documents: {doc_context}\n"
             f"Today is {today.strftime('%A, %B %d, %Y')}.\n\n"
             f"Review your lane and surface 3-5 actionable items for today.\n"
+            f"Prioritize items that advance your goal.\n"
             f"Consider: unread signals, stale follow-ups, upcoming deadlines, "
             f"open loops, meetings, and anything needing attention.\n\n"
             f"Respond ONLY with a JSON array. Each item must have:\n"

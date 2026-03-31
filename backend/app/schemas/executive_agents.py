@@ -15,6 +15,7 @@ class ExecutiveAgentBind(SQLModel):
     display_name: str
     executive_role: str
     role_description: str | None = None
+    goal: str | None = None
     avatar_emoji: str | None = None
     persona_name: str | None = None
 
@@ -26,6 +27,7 @@ class ExecutiveAgentCreate(SQLModel):
     openclaw_agent_id: str  # slug like "research-assistant"
     executive_role: str
     role_description: str | None = None
+    goal: str | None = None
     avatar_emoji: str | None = None
     persona_name: str | None = None
     agent_type: str = "primary"  # primary / helper
@@ -40,6 +42,7 @@ class ExecutiveAgentUpdate(SQLModel):
     role_description: str | None = None
     avatar_emoji: str | None = None
     persona_name: str | None = None
+    goal: str | None = None
     current_focus: str | None = None
     current_risk: str | None = None
     status: str | None = None
@@ -58,6 +61,7 @@ class ExecutiveAgentRead(SQLModel):
     display_name: str
     executive_role: str
     role_description: str | None = None
+    goal: str | None = None
     avatar_emoji: str | None = None
     persona_name: str | None = None
     agent_type: str = "primary"
