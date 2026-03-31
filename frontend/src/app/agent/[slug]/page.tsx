@@ -462,7 +462,7 @@ function ChatTab({ agent }: { agent: ExecutiveAgent }) {
                   <div className="px-1 py-2">
                     <div className="flex items-start gap-2">
                       <span className="mt-0.5 text-sm shrink-0">{agent.avatar_emoji || "🤖"}</span>
-                      <div className="prose prose-sm prose-slate dark:prose-invert max-w-none [&>p]:my-2 [&>ul]:my-2 [&>ol]:my-2 [&>h1]:text-base [&>h2]:text-sm [&>h3]:text-sm [&>h1]:mt-4 [&>h1]:mb-2 [&>h2]:mt-3 [&>h2]:mb-1 [&>h3]:mt-2 [&>h3]:mb-1 [&_li]:my-0.5" style={{ color: "var(--text)" }}>
+                      <div className="prose prose-sm prose-slate dark:prose-invert max-w-none [&>p]:my-2 [&>ul]:my-2 [&>ol]:my-2 [&>h1]:text-base [&>h2]:text-sm [&>h3]:text-sm [&>h1]:mt-4 [&>h1]:mb-2 [&>h2]:mt-3 [&>h2]:mb-1 [&>h3]:mt-2 [&>h3]:mb-1 [&_li]:my-0.5" style={{ color: "var(--text)", fontSize: "13px" }}>
                         <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
                       </div>
                     </div>
