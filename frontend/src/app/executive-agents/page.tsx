@@ -7,10 +7,13 @@ import Link from "next/link";
 import {
   AlertTriangle,
   ArrowRight,
+  CheckCircle2,
   ChevronDown,
   ChevronRight,
   Crown,
   Plus,
+  RefreshCw,
+  Target,
   Users,
   X,
 } from "lucide-react";
@@ -38,6 +41,8 @@ export default function ExecutiveAgentsPage() {
   const [agents, setAgents] = useState<ExecutiveAgent[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
+  const [reconciling, setReconciling] = useState(false);
+  const [reconcileResult, setReconcileResult] = useState<{ diffs: Array<{ agent: string; field: string; db_value: string | null; file_value: string | null }>; applied: number } | null>(null);
 
   const loadAgents = () => {
     api.agents.list().then(setAgents).catch(console.error).finally(() => setLoading(false));
@@ -80,13 +85,31 @@ export default function ExecutiveAgentsPage() {
       title="Agents"
       description="Manage your AI executive team"
       headerActions={
-        <button
-          onClick={() => setShowCreate(!showCreate)}
-          className="flex items-center gap-1.5 rounded-lg bg-[color:var(--accent)] px-3 py-1.5 text-xs font-medium text-white hover:opacity-90 transition-fast"
-        >
-          {showCreate ? <X className="h-3.5 w-3.5" /> : <Plus className="h-3.5 w-3.5" />}
-          {showCreate ? "Cancel" : "New Agent"}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={async () => {
+              setReconciling(true);
+              try {
+                const result = await api.agents.reconcile(false);
+                setReconcileResult(result);
+              } catch (e) { console.error(e); }
+              finally { setReconciling(false); }
+            }}
+            disabled={reconciling}
+            className="flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-fast disabled:opacity-40"
+            style={{ borderColor: "var(--border)", color: "var(--text-muted)" }}
+          >
+            <RefreshCw className={cn("h-3.5 w-3.5", reconciling && "animate-spin")} />
+            Reconcile
+          </button>
+          <button
+            onClick={() => setShowCreate(!showCreate)}
+            className="flex items-center gap-1.5 rounded-lg bg-[color:var(--accent)] px-3 py-1.5 text-xs font-medium text-white hover:opacity-90 transition-fast"
+          >
+            {showCreate ? <X className="h-3.5 w-3.5" /> : <Plus className="h-3.5 w-3.5" />}
+            {showCreate ? "Cancel" : "New Agent"}
+          </button>
+        </div>
       }
     >
       <SignedOut>
@@ -94,6 +117,58 @@ export default function ExecutiveAgentsPage() {
       </SignedOut>
       <SignedIn>
         <div className="mx-auto max-w-4xl space-y-6">
+          {/* Reconcile result */}
+          {reconcileResult && (
+            <div className="rounded-xl border p-4 space-y-3" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-semibold" style={{ color: "var(--text)" }}>
+                  {reconcileResult.diffs.length === 0 ? "✅ Everything in sync" : `${reconcileResult.diffs.length} diff(s) found`}
+                </h3>
+                <button onClick={() => setReconcileResult(null)} className="p-1" style={{ color: "var(--text-quiet)" }}><X className="h-3.5 w-3.5" /></button>
+              </div>
+              {reconcileResult.diffs.length > 0 && (
+                <>
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="text-left" style={{ color: "var(--text-quiet)" }}>
+                        <th className="pb-1">Agent</th>
+                        <th className="pb-1">Field</th>
+                        <th className="pb-1">Mission Control</th>
+                        <th className="pb-1">OpenClaw</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {reconcileResult.diffs.map((d, i) => (
+                        <tr key={i} style={{ color: "var(--text-muted)" }}>
+                          <td className="py-0.5">{d.agent}</td>
+                          <td className="py-0.5 font-mono">{d.field}</td>
+                          <td className="py-0.5 truncate max-w-[150px]">{d.db_value || "—"}</td>
+                          <td className="py-0.5 truncate max-w-[150px] font-medium" style={{ color: "var(--text)" }}>{d.file_value || "—"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  <button
+                    onClick={async () => {
+                      setReconciling(true);
+                      try {
+                        const result = await api.agents.reconcile(true);
+                        setReconcileResult(result);
+                        loadAgents();
+                      } catch (e) { console.error(e); }
+                      finally { setReconciling(false); }
+                    }}
+                    disabled={reconciling}
+                    className="flex items-center gap-1.5 rounded-lg bg-[color:var(--accent)] px-3 py-1.5 text-xs font-medium text-white hover:opacity-90 disabled:opacity-40"
+                  >
+                    <CheckCircle2 className="h-3.5 w-3.5" />
+                    Apply {reconcileResult.diffs.length} change(s) from OpenClaw
+                  </button>
+                </>
+              )}
+            </div>
+          )}
+
           {/* Create form */}
           {showCreate && <CreateAgentForm primaryAgents={primaryAgents} onSubmit={handleCreate} />}
 
@@ -197,9 +272,18 @@ function AgentCard({ agent, isHelper, onPromote, onToggleSidebar }: {
           )}
         </div>
         <p className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>{agent.executive_role}</p>
+        {agent.goal && (
+          <p className="text-[11px] mt-1 flex items-center gap-1" style={{ color: "var(--text-quiet)" }}>
+            <Target className="h-3 w-3 shrink-0" /> {agent.goal}
+          </p>
+        )}
+        {agent.current_focus && (
+          <p className="text-[11px] mt-0.5 truncate" style={{ color: "var(--accent)" }}>
+            Focus: {agent.current_focus}
+          </p>
+        )}
         <div className="mt-1 flex items-center gap-3 text-[11px]" style={{ color: "var(--text-quiet)" }}>
           <span>{agent.openclaw_agent_id}</span>
-          {agent.openclaw_workspace && <span className="truncate max-w-[200px]">{agent.openclaw_workspace}</span>}
         </div>
       </div>
       <div className="flex items-center gap-1 shrink-0">

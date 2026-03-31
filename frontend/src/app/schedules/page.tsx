@@ -4,11 +4,14 @@ export const dynamic = "force-dynamic";
 
 import { useEffect, useState } from "react";
 import {
+  AlertTriangle,
+  CheckCircle2,
   ChevronDown,
   ChevronRight,
+  Circle,
   Clock,
   Edit3,
-  FileText,
+  Filter,
   History,
   Pause,
   Play,
@@ -17,6 +20,7 @@ import {
   Save,
   Trash2,
   X,
+  XCircle,
   Zap,
 } from "lucide-react";
 
@@ -44,11 +48,20 @@ function timeAgo(ms: number): string {
   return `${Math.floor(diff / 86_400_000)}d ago`;
 }
 
+function HealthIcon({ job }: { job: CronJob }) {
+  const s = job.state;
+  if (!s || !s.lastRunAtMs) return <Circle className="h-3 w-3" style={{ color: "var(--text-quiet)" }} />;
+  if (s.lastStatus === "ok") return <CheckCircle2 className="h-3 w-3 text-emerald-500" />;
+  if (s.lastStatus === "error") return <XCircle className="h-3 w-3 text-red-500" />;
+  return <Circle className="h-3 w-3" style={{ color: "var(--text-quiet)" }} />;
+}
+
 export default function SchedulesPage() {
   const [jobs, setJobs] = useState<CronJob[]>([]);
   const [agents, setAgents] = useState<ExecutiveAgent[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
+  const [filterAgent, setFilterAgent] = useState<string>("all");
 
   const loadData = () => {
     setLoading(true);
@@ -65,6 +78,14 @@ export default function SchedulesPage() {
 
   const agentMap = new Map(agents.map((a) => [a.openclaw_agent_id, a]));
 
+  // Apply agent filter
+  const filtered = filterAgent === "all" ? jobs : jobs.filter((j) => j.agentId === filterAgent);
+
+  // Health stats
+  const enabledCount = jobs.filter((j) => j.enabled).length;
+  const failingCount = jobs.filter((j) => j.state?.lastStatus === "error" && j.enabled).length;
+  const disabledCount = jobs.filter((j) => !j.enabled).length;
+
   const handleToggle = async (job: CronJob) => {
     try {
       if (job.enabled) await api.schedules.disable(job.id);
@@ -74,36 +95,26 @@ export default function SchedulesPage() {
   };
 
   const handleRun = async (job: CronJob) => {
-    try {
-      await api.schedules.run(job.id);
-      loadData();
-    } catch (e) { console.error(e); }
+    try { await api.schedules.run(job.id); loadData(); } catch (e) { console.error(e); }
   };
 
   const handleRemove = async (job: CronJob) => {
     if (!confirm(`Remove "${job.name}"?`)) return;
-    try {
-      await api.schedules.remove(job.id);
-      loadData();
-    } catch (e) { console.error(e); }
+    try { await api.schedules.remove(job.id); loadData(); } catch (e) { console.error(e); }
   };
 
   const handleCreate = async (data: {
     name: string; agent_id?: string; cron_expr?: string; every?: string;
     message?: string; description?: string; tz?: string;
   }) => {
-    try {
-      await api.schedules.create(data);
-      setShowCreate(false);
-      loadData();
-    } catch (e) { console.error(e); }
+    try { await api.schedules.create(data); setShowCreate(false); loadData(); } catch (e) { console.error(e); }
   };
 
   return (
     <DashboardPageLayout
       signedOut={{ message: "Sign in", forceRedirectUrl: "/agent/main" }}
       title="Schedules"
-      description="Cron jobs and automation"
+      description="Cron jobs and automation routines"
       headerActions={
         <div className="flex items-center gap-2">
           <button onClick={loadData} className="rounded-lg border p-1.5 transition-fast" style={{ borderColor: "var(--border)", color: "var(--text-muted)" }}>
@@ -126,18 +137,44 @@ export default function SchedulesPage() {
         <div className="mx-auto max-w-4xl space-y-4">
           {showCreate && <CreateForm agents={agents} onSubmit={handleCreate} />}
 
+          {/* Health summary + agent filter */}
+          {!loading && jobs.length > 0 && (
+            <div className="flex items-center gap-4 flex-wrap">
+              <div className="flex items-center gap-3 text-[12px]" style={{ color: "var(--text-muted)" }}>
+                <span>{jobs.length} schedules</span>
+                <span className="text-emerald-600">{enabledCount} running</span>
+                {failingCount > 0 && <span className="text-red-600 font-medium">{failingCount} failing</span>}
+                {disabledCount > 0 && <span>{disabledCount} disabled</span>}
+              </div>
+              <select
+                className="ml-auto rounded-lg border px-2.5 py-1 text-xs"
+                style={{ borderColor: "var(--border)", color: "var(--text)" }}
+                value={filterAgent}
+                onChange={(e) => setFilterAgent(e.target.value)}
+              >
+                <option value="all">All agents</option>
+                {[...new Set(jobs.map((j) => j.agentId).filter(Boolean))].map((id) => {
+                  const a = agentMap.get(id!);
+                  return <option key={id} value={id!}>{a ? `${a.avatar_emoji} ${a.display_name}` : id}</option>;
+                })}
+              </select>
+            </div>
+          )}
+
           {loading ? (
             <div className="flex items-center justify-center py-16">
               <div className="h-6 w-6 animate-spin rounded-full border-2 border-slate-300 border-t-slate-900" />
             </div>
-          ) : jobs.length === 0 ? (
+          ) : filtered.length === 0 ? (
             <div className="rounded-xl border border-dashed p-8 text-center" style={{ borderColor: "var(--border)" }}>
               <Clock className="mx-auto h-8 w-8" style={{ color: "var(--text-quiet)" }} />
-              <p className="mt-3 text-sm" style={{ color: "var(--text-muted)" }}>No cron jobs found.</p>
+              <p className="mt-3 text-sm" style={{ color: "var(--text-muted)" }}>
+                {filterAgent !== "all" ? "No schedules for this agent." : "No cron jobs found."}
+              </p>
             </div>
           ) : (
             <div className="space-y-2">
-              {jobs.map((job) => (
+              {filtered.map((job) => (
                 <JobCard
                   key={job.id}
                   job={job}
@@ -169,88 +206,20 @@ function CreateForm({ agents, onSubmit }: {
   return (
     <div className="rounded-xl border p-5 space-y-3" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
       <h3 className="text-sm font-semibold" style={{ color: "var(--text)" }}>New Schedule</h3>
-      <input
-        className="w-full rounded-lg border px-3 py-2 text-sm"
-        style={{ borderColor: "var(--border)", background: "var(--surface-muted)", color: "var(--text)" }}
-        placeholder="Job name"
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-      />
+      <input className="w-full rounded-lg border px-3 py-2 text-sm" style={{ borderColor: "var(--border)", background: "var(--surface-muted)", color: "var(--text)" }} placeholder="Job name" value={name} onChange={(e) => setName(e.target.value)} />
       <div className="flex gap-3">
-        <select
-          className="rounded-lg border px-2 py-1.5 text-sm flex-1"
-          style={{ borderColor: "var(--border)", color: "var(--text)" }}
-          value={agentId}
-          onChange={(e) => setAgentId(e.target.value)}
-        >
+        <select className="rounded-lg border px-2 py-1.5 text-sm flex-1" style={{ borderColor: "var(--border)", color: "var(--text)" }} value={agentId} onChange={(e) => setAgentId(e.target.value)}>
           <option value="">No agent (default)</option>
           {agents.map((a) => <option key={a.openclaw_agent_id} value={a.openclaw_agent_id}>{a.avatar_emoji} {a.display_name}</option>)}
         </select>
-        <input
-          className="rounded-lg border px-3 py-1.5 text-sm flex-1 font-mono"
-          style={{ borderColor: "var(--border)", background: "var(--surface-muted)", color: "var(--text)" }}
-          placeholder="Cron: 0 9 * * 1-5"
-          value={cronExpr}
-          onChange={(e) => setCronExpr(e.target.value)}
-        />
+        <input className="rounded-lg border px-3 py-1.5 text-sm flex-1 font-mono" style={{ borderColor: "var(--border)", background: "var(--surface-muted)", color: "var(--text)" }} placeholder="Cron: 0 9 * * 1-5" value={cronExpr} onChange={(e) => setCronExpr(e.target.value)} />
       </div>
-      <input
-        className="w-full rounded-lg border px-3 py-2 text-sm"
-        style={{ borderColor: "var(--border)", background: "var(--surface-muted)", color: "var(--text)" }}
-        placeholder="Description (optional)"
-        value={description}
-        onChange={(e) => setDescription(e.target.value)}
-      />
-      <textarea
-        className="w-full rounded-lg border px-3 py-2 text-sm font-mono"
-        style={{ borderColor: "var(--border)", background: "var(--surface-muted)", color: "var(--text)" }}
-        rows={3}
-        placeholder="Agent message / prompt..."
-        value={message}
-        onChange={(e) => setMessage(e.target.value)}
-      />
-      <button
-        onClick={() => onSubmit({
-          name,
-          ...(agentId ? { agent_id: agentId } : {}),
-          ...(cronExpr ? { cron_expr: cronExpr } : {}),
-          ...(message ? { message } : {}),
-          ...(description ? { description } : {}),
-          tz: "Europe/Dublin",
-        })}
-        disabled={!name.trim()}
-        className="rounded-lg bg-[color:var(--accent)] px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-40"
-      >
-        Create
-      </button>
-
-      {/* Templates */}
-      <div className="border-t pt-3 mt-3" style={{ borderColor: "var(--border)" }}>
-        <p className="text-[10px] font-semibold uppercase tracking-widest mb-2" style={{ color: "var(--text-quiet)" }}>Templates</p>
-        <div className="flex flex-wrap gap-1.5">
-          {TEMPLATES.map((t) => (
-            <button
-              key={t.name}
-              onClick={() => { setName(t.name); setCronExpr(t.cron); setMessage(t.message); setDescription(t.description || ""); }}
-              className="rounded-lg border px-2 py-1 text-[10px] transition-fast hover:bg-[color:var(--surface-muted)]"
-              style={{ borderColor: "var(--border)", color: "var(--text-muted)" }}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
-      </div>
+      <input className="w-full rounded-lg border px-3 py-2 text-sm" style={{ borderColor: "var(--border)", background: "var(--surface-muted)", color: "var(--text)" }} placeholder="Description (optional)" value={description} onChange={(e) => setDescription(e.target.value)} />
+      <textarea className="w-full rounded-lg border px-3 py-2 text-sm font-mono" style={{ borderColor: "var(--border)", background: "var(--surface-muted)", color: "var(--text)" }} rows={3} placeholder="Agent message / prompt..." value={message} onChange={(e) => setMessage(e.target.value)} />
+      <button onClick={() => onSubmit({ name, ...(agentId ? { agent_id: agentId } : {}), ...(cronExpr ? { cron_expr: cronExpr } : {}), ...(message ? { message } : {}), ...(description ? { description } : {}), tz: "Europe/Dublin" })} disabled={!name.trim()} className="rounded-lg bg-[color:var(--accent)] px-4 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-40">Create</button>
     </div>
   );
 }
-
-const TEMPLATES = [
-  { label: "Morning Digest", name: "morning-digest", cron: "0 8 * * 1-5", message: "Summarize what matters today: key meetings, pending approvals, urgent follow-ups, and overnight changes.", description: "Daily morning briefing on weekdays" },
-  { label: "Inbox Summary", name: "inbox-summary", cron: "0 8-18/2 * * 1-5", message: "Scan recent emails and summarize any that need attention. Flag urgent items.", description: "Email summary every 2 hours during working hours" },
-  { label: "Weekly Audit", name: "weekly-audit", cron: "0 9 * * 1", message: "Review this past week: tasks completed, documents produced, risks identified, friction points, and suggest 2-3 improvements for next week.", description: "Monday morning weekly self-audit" },
-  { label: "Weekly Research", name: "weekly-research", cron: "0 16 * * 5", message: "Produce a weekly research summary covering market trends, competitor moves, and relevant industry news.", description: "Friday afternoon research roundup" },
-  { label: "Reminder", name: "reminder", cron: "0 9 * * 1", message: "Remind Michael about: [describe what to remind about]", description: "Weekly reminder" },
-];
 
 
 function JobCard({ job, agent, onToggle, onRun, onRemove, onReload }: {
@@ -282,16 +251,21 @@ function JobCard({ job, agent, onToggle, onRun, onRemove, onReload }: {
     finally { setSaving(false); }
   };
 
+  const s = job.state;
+  const hasErrors = s?.consecutiveErrors && s.consecutiveErrors > 0;
+
   return (
     <div
       className="rounded-xl border overflow-hidden"
-      style={{ borderColor: "var(--border)", background: "var(--surface)", opacity: job.enabled ? 1 : 0.6 }}
+      style={{ borderColor: hasErrors ? "var(--danger)" : "var(--border)", background: "var(--surface)", opacity: job.enabled ? 1 : 0.5 }}
     >
       {/* Header row */}
       <div className="flex items-start gap-3 p-4">
         <button onClick={() => setExpanded(!expanded)} className="mt-0.5 shrink-0" style={{ color: "var(--text-quiet)" }}>
           {expanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
         </button>
+        {/* Health icon */}
+        <div className="mt-0.5 shrink-0"><HealthIcon job={job} /></div>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 flex-wrap">
             {agent && <span className="text-sm">{agent.avatar_emoji}</span>}
@@ -299,13 +273,23 @@ function JobCard({ job, agent, onToggle, onRun, onRemove, onReload }: {
             {!job.enabled && (
               <span className="rounded px-1.5 py-0.5 text-[10px] font-medium" style={{ background: "var(--surface-muted)", color: "var(--text-quiet)" }}>Disabled</span>
             )}
+            {hasErrors && (
+              <span className="rounded px-1.5 py-0.5 text-[10px] font-medium bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400">
+                {s!.consecutiveErrors} errors
+              </span>
+            )}
           </div>
           {job.description && <p className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>{job.description}</p>}
           <div className="mt-1.5 flex items-center gap-3 flex-wrap text-[11px]" style={{ color: "var(--text-quiet)" }}>
             <span className="flex items-center gap-1"><Clock className="h-3 w-3" />{humanCron(job)}</span>
             {agent && <span>{agent.display_name}</span>}
-            <span>Updated {timeAgo(job.updatedAtMs)}</span>
+            {s?.lastRunAtMs && <span>Last run: {timeAgo(s.lastRunAtMs)}</span>}
+            {s?.lastDurationMs && <span>{(s.lastDurationMs / 1000).toFixed(0)}s</span>}
+            {s?.nextRunAtMs && <span>Next: {timeAgo(s.nextRunAtMs).replace(" ago", "").replace("just now", "now")}</span>}
           </div>
+          {s?.lastError && (
+            <p className="mt-1 text-[11px] text-red-600 dark:text-red-400 truncate">{s.lastError}</p>
+          )}
         </div>
         <div className="flex items-center gap-1 shrink-0">
           <button onClick={onToggle} className="rounded p-1.5 transition-fast hover:bg-[color:var(--surface-muted)]" style={{ color: "var(--text-muted)" }} title={job.enabled ? "Disable" : "Enable"}>
@@ -323,40 +307,30 @@ function JobCard({ job, agent, onToggle, onRun, onRemove, onReload }: {
       {/* Expanded detail panel */}
       {expanded && (
         <div className="border-t px-4 py-3 space-y-3 text-xs" style={{ borderColor: "var(--border)", background: "var(--surface-muted)" }}>
-          {/* Edit/view toggle */}
           <div className="flex items-center justify-between">
             <span className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: "var(--text-quiet)" }}>Configuration</span>
-            <button
-              onClick={() => setEditing(!editing)}
-              className="flex items-center gap-1 rounded px-2 py-0.5 text-[10px] font-medium transition-fast"
-              style={{ color: "var(--accent)" }}
-            >
+            <button onClick={() => setEditing(!editing)} className="flex items-center gap-1 rounded px-2 py-0.5 text-[10px] font-medium transition-fast" style={{ color: "var(--accent)" }}>
               {editing ? <X className="h-3 w-3" /> : <Edit3 className="h-3 w-3" />}
               {editing ? "Cancel" : "Edit"}
             </button>
           </div>
-
           {editing ? (
             <div className="space-y-2">
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-[10px] font-medium block mb-0.5" style={{ color: "var(--text-quiet)" }}>Name</label>
-                  <input className="w-full rounded border px-2 py-1 text-xs" style={{ borderColor: "var(--border)", color: "var(--text)" }}
-                    value={editName} onChange={(e) => setEditName(e.target.value)} />
+                  <input className="w-full rounded border px-2 py-1 text-xs" style={{ borderColor: "var(--border)", color: "var(--text)" }} value={editName} onChange={(e) => setEditName(e.target.value)} />
                 </div>
                 <div>
                   <label className="text-[10px] font-medium block mb-0.5" style={{ color: "var(--text-quiet)" }}>Cron Expression</label>
-                  <input className="w-full rounded border px-2 py-1 text-xs font-mono" style={{ borderColor: "var(--border)", color: "var(--text)" }}
-                    value={editCron} onChange={(e) => setEditCron(e.target.value)} />
+                  <input className="w-full rounded border px-2 py-1 text-xs font-mono" style={{ borderColor: "var(--border)", color: "var(--text)" }} value={editCron} onChange={(e) => setEditCron(e.target.value)} />
                 </div>
               </div>
               <div>
                 <label className="text-[10px] font-medium block mb-0.5" style={{ color: "var(--text-quiet)" }}>Message / Prompt</label>
-                <textarea className="w-full rounded border px-2 py-1 text-xs font-mono" style={{ borderColor: "var(--border)", color: "var(--text)" }}
-                  rows={4} value={editMessage} onChange={(e) => setEditMessage(e.target.value)} />
+                <textarea className="w-full rounded border px-2 py-1 text-xs font-mono" style={{ borderColor: "var(--border)", color: "var(--text)" }} rows={4} value={editMessage} onChange={(e) => setEditMessage(e.target.value)} />
               </div>
-              <button onClick={handleSave} disabled={saving}
-                className="flex items-center gap-1 rounded bg-[color:var(--accent)] px-3 py-1 text-[10px] font-medium text-white disabled:opacity-40">
+              <button onClick={handleSave} disabled={saving} className="flex items-center gap-1 rounded bg-[color:var(--accent)] px-3 py-1 text-[10px] font-medium text-white disabled:opacity-40">
                 <Save className="h-3 w-3" /> {saving ? "Saving..." : "Save Changes"}
               </button>
             </div>
@@ -383,7 +357,6 @@ function JobCard({ job, agent, onToggle, onRun, onRemove, onReload }: {
               )}
             </>
           )}
-
           <p className="text-[10px]" style={{ color: "var(--text-quiet)" }}>
             Created: {new Date(job.createdAtMs).toLocaleString()}
           </p>

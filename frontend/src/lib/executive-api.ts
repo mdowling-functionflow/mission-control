@@ -187,6 +187,14 @@ export interface CronJob {
   schedule: { kind: string; expr?: string; tz?: string; every?: string } | null;
   payload: { kind: string; message?: string; model?: string; timeoutSeconds?: number; thinking?: string } | null;
   delivery: { mode: string; channel?: string } | null;
+  state?: {
+    lastRunAtMs?: number;
+    lastStatus?: string;
+    lastDurationMs?: number;
+    consecutiveErrors?: number;
+    lastError?: string;
+    nextRunAtMs?: number;
+  };
   createdAtMs: number;
   updatedAtMs: number;
 }
