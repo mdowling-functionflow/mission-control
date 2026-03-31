@@ -151,11 +151,67 @@ async def run_weekly_audit(
     if not exec_agent:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
 
-    # Build goal-aware audit prompt
-    goal_line = f"\nYour current goal: {exec_agent.goal}" if exec_agent.goal else ""
-    audit_prompt = f"""You are running your weekly self-audit as {exec_agent.display_name} ({exec_agent.executive_role}).{goal_line}
+    # Gather real workload data for the audit prompt
+    from app.models.chat_threads import ChatThread
+    from app.models.agent_messages import AgentMessage
+    from app.models.documents import Document
+    from datetime import timedelta
 
-Review your lane's work this week and produce a structured audit report covering:
+    one_week_ago = utcnow() - timedelta(days=7)
+
+    # Count chat threads this week
+    thread_count_stmt = select(func.count()).select_from(ChatThread).where(
+        col(ChatThread.executive_agent_id) == agent_id,
+        col(ChatThread.organization_id) == ctx.organization.id,
+        col(ChatThread.created_at) >= one_week_ago,
+    )
+    thread_count = (await session.exec(thread_count_stmt)).one()
+
+    # Count messages this week
+    msg_count_stmt = select(func.count()).select_from(AgentMessage).where(
+        col(AgentMessage.executive_agent_id) == agent_id,
+        col(AgentMessage.organization_id) == ctx.organization.id,
+        col(AgentMessage.created_at) >= one_week_ago,
+    )
+    msg_count = (await session.exec(msg_count_stmt)).one()
+
+    # Recent docs this week
+    docs_stmt = (
+        select(Document)
+        .where(
+            col(Document.source_agent_id) == agent_id,
+            col(Document.organization_id) == ctx.organization.id,
+            col(Document.created_at) >= one_week_ago,
+        )
+        .order_by(col(Document.created_at).desc())
+        .limit(5)
+    )
+    recent_docs = (await session.exec(docs_stmt)).all()
+    doc_list = "\n".join(f"  - {d.title} ({d.doc_type}, {d.origin})" for d in recent_docs) if recent_docs else "  None"
+
+    # Recent improvements
+    imp_count_stmt = select(func.count()).select_from(Improvement).where(
+        col(Improvement.executive_agent_id) == agent_id,
+        col(Improvement.organization_id) == ctx.organization.id,
+        col(Improvement.created_at) >= one_week_ago,
+    )
+    imp_count = (await session.exec(imp_count_stmt)).one()
+
+    # Build goal-aware, workload-grounded audit prompt
+    goal_line = f"\nYour current goal: {exec_agent.goal}" if exec_agent.goal else ""
+    workload_section = f"""
+Actual workload this week:
+- Chat conversations: {thread_count} new threads, {msg_count} total messages
+- Documents produced:
+{doc_list}
+- Previous improvements proposed: {imp_count}
+- Current focus: {exec_agent.current_focus or 'Not set'}
+- Current risk: {exec_agent.current_risk or 'None flagged'}
+"""
+
+    audit_prompt = f"""You are running your weekly self-audit as {exec_agent.display_name} ({exec_agent.executive_role}).{goal_line}
+{workload_section}
+Review your lane's actual work this week based on the workload data above, and produce a structured audit report covering:
 
 1. **Goal progress** — how did your work this week advance your goal? What moved forward, what stalled?
 2. **Tasks completed** — what did you accomplish this week?

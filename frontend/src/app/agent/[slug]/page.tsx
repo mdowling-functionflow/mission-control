@@ -1332,6 +1332,25 @@ function WeeklyReviewTab() {
           {review.status}
         </span>
       </div>
+      {/* Goal Progress */}
+      {review.goal_progress && Object.keys(review.goal_progress).length > 0 && (
+        <div>
+          <h5 className="text-[10px] font-semibold uppercase tracking-widest mb-1" style={{ color: "var(--text-quiet)" }}>Goal Progress</h5>
+          <div className="space-y-2">
+            {Object.entries(review.goal_progress).map(([name, data]: [string, any]) => (
+              <div key={name} className="rounded-lg border px-3 py-2" style={{ borderColor: "var(--border)", background: "var(--surface-muted)" }}>
+                <p className="text-[12px] font-medium" style={{ color: "var(--text)" }}>{name}</p>
+                <p className="text-[11px] mt-0.5" style={{ color: "var(--text-quiet)" }}>{data.goal}</p>
+                <p className="text-[11px] mt-0.5" style={{ color: "var(--text-muted)" }}>{data.progress}</p>
+                {data.blockers !== "None" && (
+                  <p className="text-[11px] mt-0.5 text-amber-600">Blocker: {data.blockers}</p>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {sections.map(({ title, items }) => (
         <div key={title}>
           <h5 className="text-[10px] font-semibold uppercase tracking-widest mb-1" style={{ color: "var(--text-quiet)" }}>{title}</h5>

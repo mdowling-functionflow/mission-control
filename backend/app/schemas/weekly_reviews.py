@@ -20,6 +20,7 @@ class WeeklyReviewUpdate(SQLModel):
     improvements: list[dict] | None = None
     next_week_priorities: list[dict] | None = None
     agent_summaries: dict | None = None
+    goal_progress: dict | None = None
     status: str | None = None
 
 
@@ -35,5 +36,6 @@ class WeeklyReviewRead(SQLModel):
     improvements: list[dict] | None = None
     next_week_priorities: list[dict] | None = None
     agent_summaries: dict | None = None
+    goal_progress: dict | None = None
     created_at: datetime
     updated_at: datetime

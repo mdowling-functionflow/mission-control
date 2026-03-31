@@ -30,6 +30,7 @@ class WeeklyReview(QueryModel, table=True):
 
     # Per-agent summaries
     agent_summaries: dict | None = Field(default=None, sa_column=Column(JSON))
+    goal_progress: dict | None = Field(default=None, sa_column=Column(JSON))  # {agent_name: {goal, progress, blockers}}
 
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow)

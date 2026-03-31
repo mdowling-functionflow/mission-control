@@ -196,9 +196,17 @@ async def generate_weekly_review(
         for i in week_improvements
     ]
 
-    # Agent summaries
+    # Agent summaries + goal progress
+    from app.models.daily_items import DailyItem
+    from app.models.documents import Document
+    from app.models.agent_messages import AgentMessage
+
     agent_summaries = {}
+    goal_progress = {}
+    next_week = []
+
     for agent in agents:
+        # Build summary
         parts = []
         if agent.current_focus:
             parts.append(f"Focus: {agent.current_focus}")
@@ -209,8 +217,68 @@ async def generate_weekly_review(
             parts.append(f"Risk: {agent.current_risk}")
         agent_summaries[agent.display_name] = ". ".join(parts) if parts else "No updates."
 
-    # Next week priorities (placeholder — agents don't generate these yet)
-    next_week = [{"text": "Review and address any open risks."}]
+        # Goal progress per agent
+        if agent.goal:
+            # Count daily items completed this week
+            daily_done_stmt = select(func.count()).select_from(DailyItem).where(
+                col(DailyItem.executive_agent_id) == agent.id,
+                col(DailyItem.organization_id) == org_id,
+                col(DailyItem.item_date) >= review.week_start,
+                col(DailyItem.item_date) <= review.week_end,
+                col(DailyItem.status) == "done",
+            )
+            daily_done = (await session.exec(daily_done_stmt)).one()
+
+            daily_total_stmt = select(func.count()).select_from(DailyItem).where(
+                col(DailyItem.executive_agent_id) == agent.id,
+                col(DailyItem.organization_id) == org_id,
+                col(DailyItem.item_date) >= review.week_start,
+                col(DailyItem.item_date) <= review.week_end,
+            )
+            daily_total = (await session.exec(daily_total_stmt)).one()
+
+            # Count docs produced
+            docs_stmt = select(func.count()).select_from(Document).where(
+                col(Document.source_agent_id) == agent.id,
+                col(Document.organization_id) == org_id,
+                col(Document.created_at) >= week_start_dt,
+                col(Document.created_at) <= week_end_dt,
+            )
+            doc_count = (await session.exec(docs_stmt)).one()
+
+            # Count messages
+            msg_stmt = select(func.count()).select_from(AgentMessage).where(
+                col(AgentMessage.executive_agent_id) == agent.id,
+                col(AgentMessage.organization_id) == org_id,
+                col(AgentMessage.created_at) >= week_start_dt,
+                col(AgentMessage.created_at) <= week_end_dt,
+            )
+            msg_count = (await session.exec(msg_stmt)).one()
+
+            # Agent improvements this week
+            agent_imps = [i for i in week_improvements if i.executive_agent_id == agent.id]
+            adopted = sum(1 for i in agent_imps if i.status == "adopted")
+
+            progress_note = f"{daily_done}/{daily_total} daily items done, {doc_count} docs, {msg_count} messages, {len(agent_imps)} improvements ({adopted} adopted)"
+            blockers = agent.current_risk or "None"
+
+            goal_progress[agent.display_name] = {
+                "goal": agent.goal,
+                "progress": progress_note,
+                "blockers": blockers,
+                "daily_completion": f"{daily_done}/{daily_total}",
+                "docs_produced": doc_count,
+            }
+
+            # Generate priority from goal progress
+            if daily_total > 0 and daily_done < daily_total / 2:
+                next_week.append({"text": f"{agent.display_name}: Low daily completion ({daily_done}/{daily_total}) — focus on advancing goal: {agent.goal}"})
+            if agent.current_risk:
+                next_week.append({"text": f"{agent.display_name}: Address risk — {agent.current_risk}"})
+
+    # Default priorities
+    if not next_week:
+        next_week = [{"text": "All lanes operating normally. Continue current focus areas."}]
     if pending_count := sum(1 for a in agents if a.pending_approvals_count > 0):
         next_week.append({"text": f"Clear {pending_count} agent(s) with pending approvals."})
 
@@ -221,6 +289,7 @@ async def generate_weekly_review(
     review.improvements = improvements_list if improvements_list else [{"text": "No improvements proposed this week."}]
     review.next_week_priorities = next_week
     review.agent_summaries = agent_summaries
+    review.goal_progress = goal_progress
     review.updated_at = utcnow()
 
     session.add(review)
