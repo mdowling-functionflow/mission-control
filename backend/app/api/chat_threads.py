@@ -359,10 +359,9 @@ async def upload_thread_attachment(
         except Exception as exc:
             logger.warning("chat_thread.upload.failed", error=str(exc))
 
-    # Build user message content — include both caption and file reference
+    # User message content — just the caption text, file info shown via attachment pill
     user_text = caption.strip() if caption.strip() else ""
-    file_note = f"[Attached file: {file.filename}]"
-    content = f"{user_text}\n\n{file_note}" if user_text else file_note
+    content = user_text or f"📎 {file.filename}"
 
     # Save user message with attachment
     msg = AgentMessage(
@@ -384,7 +383,10 @@ async def upload_thread_attachment(
 
     # Execute agent with the message (including file context)
     try:
+        # Include file context for the agent (not shown in chat)
         agent_prompt = content
+        if file.filename:
+            agent_prompt += f"\n\n[User attached file: {file.filename}]"
         response_text = await _exec_agent_cli(
             exec_agent.openclaw_agent_id,
             agent_prompt,
