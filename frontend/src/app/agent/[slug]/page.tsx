@@ -52,6 +52,8 @@ import {
   type ChatThreadItem,
   type CronJob,
   type InstalledSkill,
+  type SkillDetail,
+  type SkillFile,
   type ThreadMessage,
   type DocumentItem,
   type ChatMessage,
@@ -173,7 +175,7 @@ export default function AgentWorkspacePage() {
           </div>
 
           {/* Tab content — fills remaining space */}
-          <div className={cn("flex-1", activeTab === "chat" ? "overflow-hidden" : "overflow-y-auto p-4")}>
+          <div className={cn("flex-1", ["chat", "docs", "skills"].includes(activeTab) ? "overflow-hidden" : "overflow-y-auto p-4")}>
             {activeTab === "chat" && <ChatTab agent={agent} />}
             {activeTab === "agent" && <AgentTab agent={agent} slug={slug} />}
             {activeTab === "skills" && <SkillsTab agentId={agent.id} agentSlug={slug} />}
@@ -926,20 +928,44 @@ function SkillsTab({ agentId, agentSlug }: { agentId: string; agentSlug: string 
   const [skills, setSkills] = useState<InstalledSkill[]>([]);
   const [mappings, setMappings] = useState<Array<{ id: string; skill_path: string; relevance: string }>>([]);
   const [loading, setLoading] = useState(true);
-  const [showAll, setShowAll] = useState(false);
+  const [search, setSearch] = useState("");
+  const [selectedSkill, setSelectedSkill] = useState<SkillDetail | null>(null);
+  const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  const [activeFile, setActiveFile] = useState<string>("SKILL.md");
+  const [showPreview, setShowPreview] = useState(true);
+  const [changeRequest, setChangeRequest] = useState("");
+  const [proposing, setProposing] = useState(false);
+  const [showAvailable, setShowAvailable] = useState(false);
 
   useEffect(() => {
     Promise.all([
       api.skills.list().catch(() => []),
       api.skillMappings.list(agentId).catch(() => []),
-    ]).then(([s, m]) => { setSkills(s); setMappings(m); }).finally(() => setLoading(false));
+    ]).then(([s, m]) => {
+      setSkills(s);
+      setMappings(m);
+      // Auto-select first core skill
+      const mappedPaths = new Set(m.map((x: any) => x.skill_path));
+      const first = s.find((sk: InstalledSkill) => mappedPaths.has(sk.encoded_path));
+      if (first) setSelectedPath(first.encoded_path);
+    }).finally(() => setLoading(false));
   }, [agentId]);
 
-  if (loading) return <Spinner />;
+  // Load skill detail when selected
+  useEffect(() => {
+    if (!selectedPath) { setSelectedSkill(null); return; }
+    api.skills.get(selectedPath).then((s) => {
+      setSelectedSkill(s);
+      setActiveFile(s.files?.[0]?.name || "SKILL.md");
+    }).catch(console.error);
+  }, [selectedPath]);
 
   const mappedPaths = new Set(mappings.map((m) => m.skill_path));
   const coreSkills = skills.filter((s) => mappedPaths.has(s.encoded_path));
   const otherSkills = skills.filter((s) => !mappedPaths.has(s.encoded_path));
+  const filteredOther = search.trim()
+    ? otherSkills.filter((s) => s.name.toLowerCase().includes(search.toLowerCase()))
+    : otherSkills;
 
   const handleAdd = async (encodedPath: string) => {
     try {
@@ -957,70 +983,190 @@ function SkillsTab({ agentId, agentSlug }: { agentId: string; agentSlug: string 
     } catch (e) { console.error(e); }
   };
 
+  const handlePropose = async () => {
+    if (!changeRequest.trim() || !selectedPath) return;
+    setProposing(true);
+    try {
+      await api.skills.proposeChange(selectedPath, changeRequest);
+      setChangeRequest("");
+    } catch (e) { console.error(e); }
+    finally { setProposing(false); }
+  };
+
+  const activeFileContent = selectedSkill?.files?.find((f) => f.name === activeFile);
+  const isMarkdown = activeFile.endsWith(".md");
+
   return (
-    <div className="space-y-4">
-      {/* Core skills */}
-      {coreSkills.length > 0 && (
-        <div>
-          <h4 className="text-[10px] font-semibold uppercase tracking-widest mb-2" style={{ color: "var(--text-quiet)" }}>
-            Core Skills ({coreSkills.length})
-          </h4>
-          <div className="space-y-1.5">
-            {coreSkills.map((skill) => (
-              <SkillRow key={skill.encoded_path} skill={skill} mapped onToggle={() => handleRemove(skill.encoded_path)} fromSlug={agentSlug} />
-            ))}
-          </div>
+    <div className="flex h-full">
+      {/* ── Sidebar ── */}
+      <div className="w-[220px] shrink-0 border-r flex flex-col" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
+        {/* Search */}
+        <div className="p-3 pb-1">
+          <input
+            className="w-full rounded-lg border px-2.5 py-1.5 text-[11px] focus:outline-none"
+            style={{ borderColor: "var(--border)", background: "var(--bg)", color: "var(--text)" }}
+            placeholder="Search skills..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
         </div>
-      )}
+        <div className="flex-1 overflow-y-auto px-2">
+          {loading ? <div className="py-4 text-center"><Spinner /></div> : (
+            <>
+              {/* Core skills */}
+              <p className="px-2 pt-2 pb-1 text-[9px] font-bold uppercase tracking-[0.15em]" style={{ color: "var(--text-quiet)" }}>
+                Core ({coreSkills.length})
+              </p>
+              {coreSkills.map((s) => (
+                <div
+                  key={s.encoded_path}
+                  className={cn(
+                    "group flex items-center rounded-lg mb-0.5 transition-fast",
+                    selectedPath === s.encoded_path ? "bg-[color:var(--surface-muted)]" : "hover:bg-[color:var(--surface-muted)]",
+                  )}
+                >
+                  <button onClick={() => setSelectedPath(s.encoded_path)} className="flex-1 text-left px-2.5 py-1.5 text-[12px] min-w-0">
+                    <p className="font-medium truncate" style={{ color: selectedPath === s.encoded_path ? "var(--text)" : "var(--text-muted)" }}>{s.name}</p>
+                  </button>
+                  <button
+                    onClick={() => handleRemove(s.encoded_path)}
+                    className="opacity-0 group-hover:opacity-100 shrink-0 p-1 mr-1 rounded text-[9px] font-medium transition-fast"
+                    style={{ color: "var(--danger)" }}
+                    title="Remove from agent"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </div>
+              ))}
 
-      {coreSkills.length === 0 && (
-        <div className="rounded-xl border border-dashed p-4 text-center text-xs" style={{ borderColor: "var(--border)", color: "var(--text-quiet)" }}>
-          No skills mapped to this agent yet. Add skills below.
+              {/* Available skills */}
+              <button
+                onClick={() => setShowAvailable(!showAvailable)}
+                className="flex items-center gap-1 px-2 pt-3 pb-1 text-[9px] font-bold uppercase tracking-[0.15em]"
+                style={{ color: "var(--text-quiet)" }}
+              >
+                {showAvailable ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+                Available ({filteredOther.length})
+              </button>
+              {showAvailable && filteredOther.map((s) => (
+                <div
+                  key={s.encoded_path}
+                  className={cn(
+                    "group flex items-center rounded-lg mb-0.5 transition-fast",
+                    selectedPath === s.encoded_path ? "bg-[color:var(--surface-muted)]" : "hover:bg-[color:var(--surface-muted)]",
+                  )}
+                >
+                  <button onClick={() => setSelectedPath(s.encoded_path)} className="flex-1 text-left px-2.5 py-1.5 text-[12px] min-w-0">
+                    <p className="truncate" style={{ color: "var(--text-quiet)" }}>{s.name}</p>
+                  </button>
+                  <button
+                    onClick={() => handleAdd(s.encoded_path)}
+                    className="opacity-0 group-hover:opacity-100 shrink-0 p-1 mr-1 rounded text-[9px] font-medium transition-fast"
+                    style={{ color: "var(--accent)" }}
+                    title="Add to agent"
+                  >
+                    <Plus className="h-3 w-3" />
+                  </button>
+                </div>
+              ))}
+            </>
+          )}
         </div>
-      )}
+      </div>
 
-      {/* All skills */}
-      <div>
-        <button
-          onClick={() => setShowAll(!showAll)}
-          className="text-xs font-medium transition-fast"
-          style={{ color: "var(--accent)" }}
-        >
-          {showAll ? "Hide all skills" : `Show all ${otherSkills.length} available skills`}
-        </button>
-        {showAll && (
-          <div className="mt-2 space-y-1.5">
-            {otherSkills.map((skill) => (
-              <SkillRow key={skill.encoded_path} skill={skill} mapped={false} onToggle={() => handleAdd(skill.encoded_path)} fromSlug={agentSlug} />
-            ))}
+      {/* ── Main pane ── */}
+      <div className="flex-1 flex flex-col min-w-0">
+        <div className="flex-1 overflow-y-auto">
+          {!selectedSkill ? (
+            <div className="flex flex-col items-center justify-center h-full text-center">
+              <FileCode className="h-10 w-10 mb-3" style={{ color: "var(--text-quiet)" }} />
+              <p className="text-sm font-medium" style={{ color: "var(--text)" }}>Select a skill</p>
+              <p className="text-xs mt-1" style={{ color: "var(--text-quiet)" }}>Choose from the sidebar to preview</p>
+            </div>
+          ) : (
+            <div className="max-w-3xl mx-auto px-6 py-4">
+              {/* Skill header */}
+              <div className="mb-4">
+                <h3 className="text-sm font-semibold" style={{ color: "var(--text)" }}>{selectedSkill.name}</h3>
+                {selectedSkill.summary && <p className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>{selectedSkill.summary}</p>}
+                <div className="flex items-center gap-2 mt-1 text-[10px]" style={{ color: "var(--text-quiet)" }}>
+                  <span>{selectedSkill.source}</span>
+                  <span>{selectedSkill.files?.length || 0} files</span>
+                  <Link href={`/skills-editor/${selectedSkill.encoded_path}?from=agent/${agentSlug}`} className="ml-auto" style={{ color: "var(--accent)" }}>
+                    Full editor →
+                  </Link>
+                </div>
+              </div>
+              {/* File tabs */}
+              {selectedSkill.files && selectedSkill.files.length > 0 && (
+                <div className="flex gap-1 mb-3 flex-wrap">
+                  {selectedSkill.files.map((f) => (
+                    <button
+                      key={f.name}
+                      onClick={() => { setActiveFile(f.name); setShowPreview(f.name.endsWith(".md")); }}
+                      className={cn(
+                        "rounded-md px-2 py-0.5 text-[10px] font-medium transition-fast",
+                        activeFile === f.name
+                          ? "bg-[color:var(--accent-soft)] text-[color:var(--accent)]"
+                          : "text-[color:var(--text-quiet)] hover:text-[color:var(--text)]",
+                      )}
+                    >
+                      {f.name}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {/* File content */}
+              {activeFileContent && (
+                isMarkdown && showPreview ? (
+                  <div className="prose prose-sm prose-slate dark:prose-invert max-w-none [&>p]:my-2 [&>ul]:my-2 [&>ol]:my-2" style={{ color: "var(--text)", fontSize: "13px" }}>
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{activeFileContent.content}</ReactMarkdown>
+                  </div>
+                ) : (
+                  <pre className="text-xs font-mono whitespace-pre-wrap rounded-lg border p-3 max-h-[500px] overflow-auto" style={{ borderColor: "var(--border)", background: "var(--surface-muted)", color: "var(--text)" }}>
+                    {activeFileContent.content}
+                  </pre>
+                )
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Action input — pinned bottom */}
+        {selectedSkill && (
+          <div className="shrink-0 border-t" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
+            <div className="max-w-3xl mx-auto px-6 py-3">
+              <div className="rounded-xl border overflow-hidden" style={{ borderColor: "var(--border)", background: "var(--bg)" }}>
+                <textarea
+                  className="w-full resize-none px-4 py-2.5 text-[13px] bg-transparent focus:outline-none"
+                  style={{ color: "var(--text)", maxHeight: "120px" }}
+                  rows={2}
+                  placeholder="Describe a change to this skill..."
+                  value={changeRequest}
+                  onChange={(e) => setChangeRequest(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && changeRequest.trim()) { e.preventDefault(); handlePropose(); } }}
+                />
+                <div className="flex items-center justify-between px-3 pb-2">
+                  <Link
+                    href={`/skills-editor/${selectedSkill.encoded_path}?from=agent/${agentSlug}`}
+                    className="text-[10px]"
+                    style={{ color: "var(--text-quiet)" }}
+                  >
+                    Edit directly →
+                  </Link>
+                  <button
+                    onClick={handlePropose}
+                    disabled={!changeRequest.trim() || proposing}
+                    className="rounded-lg bg-[color:var(--accent)] px-3 py-1 text-[11px] font-medium text-white disabled:opacity-30"
+                  >
+                    {proposing ? "Proposing..." : "Propose Change"}
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
         )}
       </div>
-    </div>
-  );
-}
-
-function SkillRow({ skill, mapped, onToggle, fromSlug }: { skill: InstalledSkill; mapped: boolean; onToggle: () => void; fromSlug?: string }) {
-  return (
-    <div className="flex items-center gap-3 rounded-xl border p-3" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
-      <Link href={`/skills-editor/${skill.encoded_path}${fromSlug ? `?from=agent/${fromSlug}` : ""}`} className="flex items-center gap-3 min-w-0 flex-1">
-        <FileCode className="h-4 w-4 shrink-0" style={{ color: "var(--text-quiet)" }} />
-        <div className="min-w-0 flex-1">
-          <p className="text-sm font-medium" style={{ color: "var(--text)" }}>{skill.name}</p>
-          {skill.summary && <p className="text-xs truncate" style={{ color: "var(--text-muted)" }}>{skill.summary}</p>}
-        </div>
-      </Link>
-      <button
-        onClick={(e) => { e.preventDefault(); onToggle(); }}
-        className={cn(
-          "rounded-lg px-2 py-1 text-[10px] font-medium transition-fast",
-          mapped
-            ? "bg-red-50 text-red-600 hover:bg-red-100 dark:bg-red-900/20 dark:text-red-400"
-            : "bg-[color:var(--accent-soft)] text-[color:var(--accent)] hover:opacity-80",
-        )}
-      >
-        {mapped ? "Remove" : "Add"}
-      </button>
     </div>
   );
 }
@@ -1148,37 +1294,67 @@ const DOC_FILTERS: Array<{ key: DocFilter; label: string }> = [
 
 function DocsTab({ agentId, agentSlug }: { agentId: string; agentSlug: string }) {
   const [docs, setDocs] = useState<DocumentItem[]>([]);
+  const [selectedDocId, setSelectedDocId] = useState<string | null>(null);
+  const [selectedDoc, setSelectedDoc] = useState<DocumentItem | null>(null);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState<DocFilter>("generated");
+  const [filter, setFilter] = useState<DocFilter>("all");
   const [search, setSearch] = useState("");
-  const [showCreate, setShowCreate] = useState(false);
+  const [editContent, setEditContent] = useState("");
+  const [saving, setSaving] = useState(false);
   const [newTitle, setNewTitle] = useState("");
-  const [creating, setCreating] = useState(false);
 
   const loadDocs = () => {
-    api.documents.list(agentId).then(setDocs).catch(console.error).finally(() => setLoading(false));
+    api.documents.list(agentId).then((d) => {
+      setDocs(d);
+      if (!selectedDocId && d.length > 0) setSelectedDocId(d[0].id);
+    }).catch(console.error).finally(() => setLoading(false));
   };
   useEffect(() => { loadDocs(); }, [agentId]);
+
+  // Load selected doc detail
+  useEffect(() => {
+    if (!selectedDocId) { setSelectedDoc(null); return; }
+    api.documents.get(selectedDocId).then((d) => {
+      setSelectedDoc(d);
+      setEditContent(d.content || "");
+    }).catch(console.error);
+  }, [selectedDocId]);
 
   const filtered = docs.filter((d) => {
     if (filter === "uploaded") return d.doc_type === "uploaded" || (d.file_path && d.doc_type !== "markdown");
     if (filter === "generated") return d.doc_type !== "uploaded";
     return true;
-  }).filter((d) => {
-    if (!search.trim()) return true;
-    return d.title.toLowerCase().includes(search.toLowerCase());
-  });
+  }).filter((d) => !search.trim() || d.title.toLowerCase().includes(search.toLowerCase()));
 
   const handleCreate = async () => {
     if (!newTitle.trim()) return;
-    setCreating(true);
     try {
-      await api.documents.create({ title: newTitle.trim(), doc_type: "markdown", source_agent_id: agentId });
+      const doc = await api.documents.create({ title: newTitle.trim(), doc_type: "markdown", source_agent_id: agentId });
       setNewTitle("");
-      setShowCreate(false);
       loadDocs();
+      setSelectedDocId(doc.id);
     } catch (e) { console.error(e); }
-    finally { setCreating(false); }
+  };
+
+  const handleSave = async () => {
+    if (!selectedDoc) return;
+    setSaving(true);
+    try {
+      await api.documents.update(selectedDoc.id, { content: editContent });
+      setSelectedDoc({ ...selectedDoc, content: editContent });
+    } catch (e) { console.error(e); }
+    finally { setSaving(false); }
+  };
+
+  const handleDelete = async (docId: string) => {
+    try {
+      await api.documents.delete(docId);
+      setDocs((prev) => prev.filter((d) => d.id !== docId));
+      if (selectedDocId === docId) {
+        const remaining = docs.filter((d) => d.id !== docId);
+        setSelectedDocId(remaining.length > 0 ? remaining[0].id : null);
+      }
+    } catch (e) { console.error(e); }
   };
 
   const relTime = (iso: string) => {
@@ -1195,109 +1371,174 @@ function DocsTab({ agentId, agentSlug }: { agentId: string; agentSlug: string })
     return "📄";
   };
 
+  const downloadUrl = selectedDoc ? api.documents.downloadUrl(selectedDoc.id) : "";
+  const isMarkdown = selectedDoc && !selectedDoc.file_path && selectedDoc.content !== null;
+  const hasChanged = selectedDoc && editContent !== (selectedDoc.content || "");
+
   return (
-    <div className="space-y-3">
-      {/* Filter bar + search + create */}
-      <div className="flex items-center gap-2 flex-wrap">
-        <div className="flex gap-1 rounded-lg border p-0.5" style={{ borderColor: "var(--border)" }}>
-          {DOC_FILTERS.map((f) => (
+    <div className="flex h-full">
+      {/* ── Sidebar ── */}
+      <div className="w-[220px] shrink-0 border-r flex flex-col" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
+        {/* New doc + search */}
+        <div className="p-3 pb-1 space-y-2">
+          <div className="flex gap-1">
+            <input
+              className="flex-1 rounded-lg border px-2.5 py-1.5 text-[11px] focus:outline-none min-w-0"
+              style={{ borderColor: "var(--border)", background: "var(--bg)", color: "var(--text)" }}
+              placeholder={newTitle ? "Title..." : "Search..."}
+              value={newTitle || search}
+              onChange={(e) => newTitle ? setNewTitle(e.target.value) : setSearch(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter" && newTitle) handleCreate(); }}
+            />
             <button
-              key={f.key}
-              onClick={() => setFilter(f.key)}
+              onClick={() => { if (newTitle) { handleCreate(); } else { setNewTitle("New document"); } }}
+              className="shrink-0 rounded-lg p-1.5 transition-fast"
+              style={{ color: "var(--accent)" }}
+              title="New document"
+            >
+              <Plus className="h-3.5 w-3.5" />
+            </button>
+          </div>
+          {/* Filters */}
+          <div className="flex gap-0.5">
+            {DOC_FILTERS.map((f) => (
+              <button
+                key={f.key}
+                onClick={() => setFilter(f.key)}
+                className={cn(
+                  "rounded px-2 py-0.5 text-[10px] font-medium transition-fast",
+                  filter === f.key
+                    ? "bg-[color:var(--accent-soft)] text-[color:var(--accent)]"
+                    : "text-[color:var(--text-quiet)] hover:text-[color:var(--text)]",
+                )}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        {/* Doc list */}
+        <div className="flex-1 overflow-y-auto px-2">
+          {loading ? <div className="py-4 text-center"><Spinner /></div> : filtered.map((doc) => (
+            <div
+              key={doc.id}
               className={cn(
-                "rounded-md px-3 py-1 text-[11px] font-medium transition-fast",
-                filter === f.key
-                  ? "bg-[color:var(--accent-soft)] text-[color:var(--accent)]"
-                  : "text-[color:var(--text-muted)] hover:text-[color:var(--text)]",
+                "group flex items-center rounded-lg mb-0.5 transition-fast",
+                selectedDocId === doc.id ? "bg-[color:var(--surface-muted)]" : "hover:bg-[color:var(--surface-muted)]",
               )}
             >
-              {f.label}
-            </button>
+              <button
+                onClick={() => setSelectedDocId(doc.id)}
+                className="flex-1 text-left px-2.5 py-2 text-[12px] min-w-0"
+              >
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs">{docIcon(doc)}</span>
+                  <p className="font-medium truncate" style={{ color: selectedDocId === doc.id ? "var(--text)" : "var(--text-muted)" }}>
+                    {doc.title}
+                  </p>
+                </div>
+                <p className="text-[10px] mt-0.5" style={{ color: "var(--text-quiet)" }}>
+                  {doc.doc_type} · {relTime(doc.updated_at)}
+                </p>
+              </button>
+              <button
+                onClick={() => handleDelete(doc.id)}
+                className="opacity-0 group-hover:opacity-100 shrink-0 p-1 mr-1 rounded transition-fast hover:bg-red-50 dark:hover:bg-red-950/20"
+                style={{ color: "var(--danger)" }}
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </div>
           ))}
         </div>
-        <div className="relative flex-1 min-w-[120px]">
-          <Search className="absolute left-2.5 top-1/2 h-3 w-3 -translate-y-1/2" style={{ color: "var(--text-quiet)" }} />
-          <input
-            className="w-full rounded-lg border py-1 pl-7 pr-3 text-[11px] focus:outline-none"
-            style={{ borderColor: "var(--border)", background: "var(--surface)", color: "var(--text)" }}
-            placeholder="Search docs..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-        </div>
-        <button
-          onClick={() => setShowCreate(!showCreate)}
-          className="flex items-center gap-1 rounded-lg px-2.5 py-1 text-[11px] font-medium transition-fast"
-          style={{ background: "var(--accent-soft)", color: "var(--accent)" }}
-        >
-          <Plus className="h-3 w-3" /> New Doc
-        </button>
-        <span className="text-[10px]" style={{ color: "var(--text-quiet)" }}>
-          {filtered.length}
-        </span>
       </div>
 
-      {/* Inline create form */}
-      {showCreate && (
-        <div className="flex items-center gap-2">
-          <input
-            className="flex-1 rounded-lg border px-3 py-1.5 text-[12px] focus:outline-none"
-            style={{ borderColor: "var(--border)", background: "var(--surface)", color: "var(--text)" }}
-            placeholder="Document title..."
-            value={newTitle}
-            onChange={(e) => setNewTitle(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter") handleCreate(); }}
-            autoFocus
-          />
-          <button onClick={handleCreate} disabled={!newTitle.trim() || creating}
-            className="rounded-lg bg-[color:var(--accent)] px-3 py-1.5 text-[11px] font-medium text-white disabled:opacity-40">
-            {creating ? "..." : "Create"}
-          </button>
-          <button onClick={() => setShowCreate(false)} className="p-1" style={{ color: "var(--text-quiet)" }}>
-            <X className="h-3 w-3" />
-          </button>
+      {/* ── Main pane ── */}
+      <div className="flex-1 flex flex-col min-w-0">
+        {/* Content area */}
+        <div className="flex-1 overflow-y-auto">
+          {!selectedDoc ? (
+            <div className="flex flex-col items-center justify-center h-full text-center">
+              <FileText className="h-10 w-10 mb-3" style={{ color: "var(--text-quiet)" }} />
+              <p className="text-sm font-medium" style={{ color: "var(--text)" }}>Select a document</p>
+              <p className="text-xs mt-1" style={{ color: "var(--text-quiet)" }}>Choose from the sidebar or create a new one</p>
+            </div>
+          ) : (
+            <div className="max-w-3xl mx-auto px-6 py-4">
+              {/* Doc header */}
+              <div className="flex items-center gap-2 mb-4">
+                <span className="text-lg">{docIcon(selectedDoc)}</span>
+                <div className="min-w-0 flex-1">
+                  <h3 className="text-sm font-semibold" style={{ color: "var(--text)" }}>{selectedDoc.title}</h3>
+                  <div className="flex items-center gap-2 text-[10px]" style={{ color: "var(--text-quiet)" }}>
+                    <span>{selectedDoc.doc_type}</span>
+                    {selectedDoc.file_size && <span>{(selectedDoc.file_size / 1024).toFixed(0)}KB</span>}
+                    <span>{new Date(selectedDoc.updated_at).toLocaleDateString()}</span>
+                  </div>
+                </div>
+                {selectedDoc.file_path && (
+                  <a href={downloadUrl} download className="flex items-center gap-1 rounded-lg border px-2.5 py-1 text-[11px] font-medium" style={{ borderColor: "var(--border)", color: "var(--text-muted)" }}>
+                    <Download className="h-3 w-3" /> Download
+                  </a>
+                )}
+              </div>
+              {/* Content preview */}
+              {isMarkdown ? (
+                <div className="prose prose-sm prose-slate dark:prose-invert max-w-none [&>p]:my-2 [&>ul]:my-2 [&>ol]:my-2 [&>h1]:text-base [&>h2]:text-sm [&>h3]:text-sm" style={{ color: "var(--text)", fontSize: "13px" }}>
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{selectedDoc.content || ""}</ReactMarkdown>
+                </div>
+              ) : selectedDoc.file_path ? (
+                (() => {
+                  const mime = selectedDoc.mime_type || "";
+                  if (mime.startsWith("image/")) return <img src={downloadUrl} alt={selectedDoc.title} className="max-w-full max-h-[500px] rounded-lg border" style={{ borderColor: "var(--border)" }} />;
+                  if (mime.includes("pdf")) return <iframe src={downloadUrl} className="w-full rounded-lg border" style={{ height: "600px", borderColor: "var(--border)" }} title={selectedDoc.title} />;
+                  const isOffice = ["application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "application/vnd.ms-excel", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "application/vnd.ms-powerpoint", "application/vnd.openxmlformats-officedocument.presentationml.presentation"].includes(mime);
+                  if (isOffice) return <iframe src={`https://docs.google.com/gview?url=${encodeURIComponent(downloadUrl)}&embedded=true`} className="w-full rounded-lg border" style={{ height: "600px", borderColor: "var(--border)" }} title={selectedDoc.title} />;
+                  return (
+                    <div className="py-8 text-center">
+                      <FileText className="mx-auto h-12 w-12 mb-3" style={{ color: "var(--text-quiet)" }} />
+                      <p className="text-sm font-medium" style={{ color: "var(--text)" }}>{selectedDoc.title}</p>
+                      <p className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>{mime}</p>
+                    </div>
+                  );
+                })()
+              ) : (
+                <p className="text-sm italic" style={{ color: "var(--text-quiet)" }}>No content yet. Use the editor below to add content.</p>
+              )}
+            </div>
+          )}
         </div>
-      )}
 
-      {/* Document list */}
-      {loading ? <Spinner /> : filtered.length === 0 ? (
-        <div className="py-12 text-center">
-          <FileText className="mx-auto h-8 w-8 mb-2" style={{ color: "var(--text-quiet)" }} />
-          <p className="text-sm" style={{ color: "var(--text-muted)" }}>
-            {filter === "all" ? "No documents yet" : `No ${filter} documents yet`}
-          </p>
-          <p className="text-xs mt-1" style={{ color: "var(--text-quiet)" }}>
-            Upload a file in chat or click "New Doc" above
-          </p>
-        </div>
-      ) : (
-        <div className="space-y-1.5">
-          {filtered.map((doc) => (
-            <Link
-              key={doc.id}
-              href={`/docs/${doc.id}?from=agent/${agentSlug}`}
-              className="flex items-center gap-3 rounded-xl border px-3 py-2.5 transition-smooth hover:shadow-elevation-2"
-              style={{ borderColor: "var(--border)", background: "var(--surface)" }}
-            >
-              <span className="text-sm shrink-0">{docIcon(doc)}</span>
-              <div className="min-w-0 flex-1">
-                <p className="text-[13px] font-medium truncate" style={{ color: "var(--text)" }}>{doc.title}</p>
-                <div className="flex items-center gap-2 mt-0.5">
-                  <span className="text-[10px]" style={{ color: "var(--text-quiet)" }}>{doc.doc_type}</span>
-                  {doc.file_size && (
-                    <span className="text-[10px]" style={{ color: "var(--text-quiet)" }}>
-                      ({(doc.file_size / 1024).toFixed(0)}KB)
-                    </span>
-                  )}
+        {/* Action input — pinned bottom */}
+        {selectedDoc && isMarkdown && (
+          <div className="shrink-0 border-t" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
+            <div className="max-w-3xl mx-auto px-6 py-3">
+              <div className="rounded-xl border overflow-hidden" style={{ borderColor: "var(--border)", background: "var(--bg)" }}>
+                <textarea
+                  className="w-full resize-none px-4 py-2.5 text-[13px] bg-transparent focus:outline-none"
+                  style={{ color: "var(--text)", maxHeight: "200px" }}
+                  rows={3}
+                  placeholder="Edit document content..."
+                  value={editContent}
+                  onChange={(e) => setEditContent(e.target.value)}
+                />
+                <div className="flex items-center justify-between px-3 pb-2">
+                  <span className="text-[10px]" style={{ color: "var(--text-quiet)" }}>
+                    {hasChanged ? "Unsaved changes" : "No changes"}
+                  </span>
+                  <button
+                    onClick={handleSave}
+                    disabled={!hasChanged || saving}
+                    className="rounded-lg bg-[color:var(--accent)] px-3 py-1 text-[11px] font-medium text-white disabled:opacity-30"
+                  >
+                    {saving ? "Saving..." : "Save"}
+                  </button>
                 </div>
               </div>
-              <span className="text-[10px] shrink-0" style={{ color: "var(--text-quiet)" }}>
-                {relTime(doc.updated_at)}
-              </span>
-            </Link>
-          ))}
-        </div>
-      )}
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
