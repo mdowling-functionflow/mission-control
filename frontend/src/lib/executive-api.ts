@@ -656,6 +656,8 @@ export const api = {
       }),
     delete: (id: string) =>
       execFetch<void>(`/api/v1/documents/${id}`, { method: "DELETE" }),
+    preview: (id: string) =>
+      execFetch<{ html: string; text: string; preview_type: string }>(`/api/v1/documents/${id}/preview`),
     downloadUrl: (id: string) => `${getApiBaseUrl()}/api/v1/documents/${id}/download`,
   },
 

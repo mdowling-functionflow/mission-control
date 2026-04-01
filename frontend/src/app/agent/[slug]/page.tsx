@@ -1350,6 +1350,9 @@ function DocsTab({ agentId, agentSlug, agent }: { agentId: string; agentSlug: st
   const [newTitle, setNewTitle] = useState("");
   const [docQuestion, setDocQuestion] = useState("");
   const [askingSending, setAskingSending] = useState(false);
+  const [previewHtml, setPreviewHtml] = useState<string>("");
+  const [previewText, setPreviewText] = useState<string>("");
+  const [previewLoading, setPreviewLoading] = useState(false);
 
   const loadDocs = () => {
     api.documents.list(agentId).then((d) => {
@@ -1359,12 +1362,23 @@ function DocsTab({ agentId, agentSlug, agent }: { agentId: string; agentSlug: st
   };
   useEffect(() => { loadDocs(); }, [agentId]);
 
-  // Load selected doc detail
+  // Load selected doc detail + preview for file-backed docs
   useEffect(() => {
-    if (!selectedDocId) { setSelectedDoc(null); return; }
+    if (!selectedDocId) { setSelectedDoc(null); setPreviewHtml(""); setPreviewText(""); return; }
     api.documents.get(selectedDocId).then((d) => {
       setSelectedDoc(d);
       setEditContent(d.content || "");
+      // For file-backed docs, fetch rendered preview
+      if (d.file_path) {
+        setPreviewLoading(true);
+        setPreviewHtml(""); setPreviewText("");
+        api.documents.preview(d.id).then((p) => {
+          setPreviewHtml(p.html || "");
+          setPreviewText(p.text || "");
+        }).catch(console.error).finally(() => setPreviewLoading(false));
+      } else {
+        setPreviewHtml(""); setPreviewText("");
+      }
     }).catch(console.error);
   }, [selectedDocId]);
 
@@ -1560,18 +1574,28 @@ function DocsTab({ agentId, agentSlug, agent }: { agentId: string; agentSlug: st
                   const mime = selectedDoc.mime_type || "";
                   if (mime.startsWith("image/")) return <img src={downloadUrl} alt={selectedDoc.title} className="max-w-full max-h-[500px] rounded-lg border" style={{ borderColor: "var(--border)" }} />;
                   if (mime.includes("pdf")) return <iframe src={downloadUrl} className="w-full rounded-lg border" style={{ height: "600px", borderColor: "var(--border)" }} title={selectedDoc.title} />;
-                  // Office docs and other non-previewable files
+                  // Server-rendered preview for Office docs and text files
+                  if (previewLoading) return <div className="py-16 text-center"><Spinner /></div>;
+                  if (previewHtml) return (
+                    <div
+                      className="prose prose-sm prose-slate dark:prose-invert max-w-none [&_table]:text-xs [&_td]:px-2 [&_td]:py-1 [&_th]:px-2 [&_th]:py-1"
+                      style={{ color: "var(--text)", fontSize: "13px" }}
+                      dangerouslySetInnerHTML={{ __html: previewHtml }}
+                    />
+                  );
+                  if (previewText) return (
+                    <pre className="text-xs font-mono whitespace-pre-wrap rounded-lg border p-4 max-h-[600px] overflow-auto" style={{ borderColor: "var(--border)", background: "var(--surface-muted)", color: "var(--text)" }}>
+                      {previewText}
+                    </pre>
+                  );
+                  // Fallback for unsupported types
                   const ext = (selectedDoc.title || "").toLowerCase().split(".").pop() || "";
-                  const fileIcon = ["doc", "docx"].includes(ext) ? "📝" : ["xls", "xlsx"].includes(ext) ? "📊" : ["ppt", "pptx"].includes(ext) ? "📽️" : "📄";
                   return (
                     <div className="flex flex-col items-center justify-center py-16 text-center">
-                      <span className="text-4xl mb-3">{fileIcon}</span>
+                      <FileText className="h-12 w-12 mb-3" style={{ color: "var(--text-quiet)" }} />
                       <p className="text-sm font-semibold" style={{ color: "var(--text)" }}>{selectedDoc.title}</p>
                       <p className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
                         {ext.toUpperCase()} · {selectedDoc.file_size ? `${(selectedDoc.file_size / 1024).toFixed(0)}KB` : mime}
-                      </p>
-                      <p className="text-xs mt-3" style={{ color: "var(--text-quiet)" }}>
-                        Ask a question about this document below
                       </p>
                     </div>
                   );
