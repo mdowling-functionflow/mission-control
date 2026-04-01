@@ -27,6 +27,7 @@ import {
   Plus,
   RefreshCw,
   Save,
+  Search,
   Send,
   Square,
   Upload,
@@ -746,7 +747,13 @@ function AgentTab({ agent, slug }: { agent: ExecutiveAgent; slug: string }) {
   const isMarkdown = selectedFile?.endsWith(".md");
 
   if (loading) return <Spinner />;
-  if (files.length === 0) return <EmptyState text="No agent spec files found" />;
+  if (files.length === 0) return (
+    <div className="py-12 text-center">
+      <FileCode className="mx-auto h-8 w-8 mb-2" style={{ color: "var(--text-quiet)" }} />
+      <p className="text-sm" style={{ color: "var(--text-muted)" }}>No agent spec files found</p>
+      <p className="text-xs mt-1" style={{ color: "var(--text-quiet)" }}>Check that the agent workspace exists at ~/.openclaw/</p>
+    </div>
+  );
 
   // Separate spec files and memory files
   const specFiles = files.filter((f) => !f.is_memory);
@@ -1143,17 +1150,36 @@ function DocsTab({ agentId, agentSlug }: { agentId: string; agentSlug: string })
   const [docs, setDocs] = useState<DocumentItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<DocFilter>("generated");
+  const [search, setSearch] = useState("");
+  const [showCreate, setShowCreate] = useState(false);
+  const [newTitle, setNewTitle] = useState("");
+  const [creating, setCreating] = useState(false);
 
-  useEffect(() => {
+  const loadDocs = () => {
     api.documents.list(agentId).then(setDocs).catch(console.error).finally(() => setLoading(false));
-  }, [agentId]);
+  };
+  useEffect(() => { loadDocs(); }, [agentId]);
 
   const filtered = docs.filter((d) => {
-    if (filter === "all") return true;
     if (filter === "uploaded") return d.doc_type === "uploaded" || (d.file_path && d.doc_type !== "markdown");
-    // "generated" — everything that's not an upload
-    return d.doc_type !== "uploaded";
+    if (filter === "generated") return d.doc_type !== "uploaded";
+    return true;
+  }).filter((d) => {
+    if (!search.trim()) return true;
+    return d.title.toLowerCase().includes(search.toLowerCase());
   });
+
+  const handleCreate = async () => {
+    if (!newTitle.trim()) return;
+    setCreating(true);
+    try {
+      await api.documents.create({ title: newTitle.trim(), doc_type: "markdown", source_agent_id: agentId });
+      setNewTitle("");
+      setShowCreate(false);
+      loadDocs();
+    } catch (e) { console.error(e); }
+    finally { setCreating(false); }
+  };
 
   const relTime = (iso: string) => {
     const d = Date.now() - new Date(iso).getTime();
@@ -1171,8 +1197,8 @@ function DocsTab({ agentId, agentSlug }: { agentId: string; agentSlug: string })
 
   return (
     <div className="space-y-3">
-      {/* Filter bar */}
-      <div className="flex items-center gap-2">
+      {/* Filter bar + search + create */}
+      <div className="flex items-center gap-2 flex-wrap">
         <div className="flex gap-1 rounded-lg border p-0.5" style={{ borderColor: "var(--border)" }}>
           {DOC_FILTERS.map((f) => (
             <button
@@ -1189,14 +1215,61 @@ function DocsTab({ agentId, agentSlug }: { agentId: string; agentSlug: string })
             </button>
           ))}
         </div>
-        <span className="text-[11px] ml-auto" style={{ color: "var(--text-quiet)" }}>
-          {filtered.length} document{filtered.length !== 1 ? "s" : ""}
+        <div className="relative flex-1 min-w-[120px]">
+          <Search className="absolute left-2.5 top-1/2 h-3 w-3 -translate-y-1/2" style={{ color: "var(--text-quiet)" }} />
+          <input
+            className="w-full rounded-lg border py-1 pl-7 pr-3 text-[11px] focus:outline-none"
+            style={{ borderColor: "var(--border)", background: "var(--surface)", color: "var(--text)" }}
+            placeholder="Search docs..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
+        <button
+          onClick={() => setShowCreate(!showCreate)}
+          className="flex items-center gap-1 rounded-lg px-2.5 py-1 text-[11px] font-medium transition-fast"
+          style={{ background: "var(--accent-soft)", color: "var(--accent)" }}
+        >
+          <Plus className="h-3 w-3" /> New Doc
+        </button>
+        <span className="text-[10px]" style={{ color: "var(--text-quiet)" }}>
+          {filtered.length}
         </span>
       </div>
 
+      {/* Inline create form */}
+      {showCreate && (
+        <div className="flex items-center gap-2">
+          <input
+            className="flex-1 rounded-lg border px-3 py-1.5 text-[12px] focus:outline-none"
+            style={{ borderColor: "var(--border)", background: "var(--surface)", color: "var(--text)" }}
+            placeholder="Document title..."
+            value={newTitle}
+            onChange={(e) => setNewTitle(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") handleCreate(); }}
+            autoFocus
+          />
+          <button onClick={handleCreate} disabled={!newTitle.trim() || creating}
+            className="rounded-lg bg-[color:var(--accent)] px-3 py-1.5 text-[11px] font-medium text-white disabled:opacity-40">
+            {creating ? "..." : "Create"}
+          </button>
+          <button onClick={() => setShowCreate(false)} className="p-1" style={{ color: "var(--text-quiet)" }}>
+            <X className="h-3 w-3" />
+          </button>
+        </div>
+      )}
+
       {/* Document list */}
       {loading ? <Spinner /> : filtered.length === 0 ? (
-        <EmptyState text={filter === "all" ? "No documents yet" : `No ${filter} documents yet`} />
+        <div className="py-12 text-center">
+          <FileText className="mx-auto h-8 w-8 mb-2" style={{ color: "var(--text-quiet)" }} />
+          <p className="text-sm" style={{ color: "var(--text-muted)" }}>
+            {filter === "all" ? "No documents yet" : `No ${filter} documents yet`}
+          </p>
+          <p className="text-xs mt-1" style={{ color: "var(--text-quiet)" }}>
+            Upload a file in chat or click "New Doc" above
+          </p>
+        </div>
       ) : (
         <div className="space-y-1.5">
           {filtered.map((doc) => (
