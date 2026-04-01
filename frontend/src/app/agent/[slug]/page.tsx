@@ -175,12 +175,12 @@ export default function AgentWorkspacePage() {
           </div>
 
           {/* Tab content — fills remaining space */}
-          <div className={cn("flex-1", ["chat", "docs", "skills"].includes(activeTab) ? "overflow-hidden" : "overflow-y-auto p-4")}>
+          <div className={cn("flex-1", ["chat", "docs", "skills", "schedules"].includes(activeTab) ? "overflow-hidden" : "overflow-y-auto p-4")}>
             {activeTab === "chat" && <ChatTab agent={agent} />}
             {activeTab === "agent" && <AgentTab agent={agent} slug={slug} />}
             {activeTab === "skills" && <SkillsTab agentId={agent.id} agentSlug={slug} />}
-            {activeTab === "schedules" && <SchedulesTab agentSlug={slug} />}
-            {activeTab === "docs" && <DocsTab agentId={agent.id} agentSlug={slug} />}
+            {activeTab === "schedules" && <SchedulesTab agentSlug={slug} agentId={agent.id} agent={agent} />}
+            {activeTab === "docs" && <DocsTab agentId={agent.id} agentSlug={slug} agent={agent} />}
             {activeTab === "improvements" && <ImprovementsTab agentId={agent.id} agent={agent} />}
             {activeTab === "approvals" && <ApprovalsTab />}
             {activeTab === "review" && <WeeklyReviewTab />}
@@ -1171,35 +1171,23 @@ function SkillsTab({ agentId, agentSlug }: { agentId: string; agentSlug: string 
   );
 }
 
-function SchedulesTab({ agentSlug }: { agentSlug: string }) {
+function SchedulesTab({ agentSlug, agentId, agent }: { agentSlug: string; agentId: string; agent: ExecutiveAgent }) {
   const [jobs, setJobs] = useState<CronJob[]>([]);
+  const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    api.schedules.list().then((resp) => {
-      const all = resp.jobs || [];
-      const mine = all.filter((j: any) => j.agentId === agentSlug);
-      setJobs(mine);
-    }).catch(console.error).finally(() => setLoading(false));
-  }, [agentSlug]);
 
   const loadJobs = () => {
     api.schedules.list().then((resp) => {
       const all = resp.jobs || [];
-      setJobs(all.filter((j: any) => j.agentId === agentSlug));
+      const mine = all.filter((j: any) => j.agentId === agentSlug);
+      setJobs(mine);
+      if (!selectedJobId && mine.length > 0) setSelectedJobId(mine[0].id);
     }).catch(console.error).finally(() => setLoading(false));
   };
+  useEffect(() => { loadJobs(); }, [agentSlug]);
 
-  if (loading) return <Spinner />;
-  if (jobs.length === 0) return (
-    <div className="py-12 text-center">
-      <Clock className="mx-auto h-8 w-8 mb-2" style={{ color: "var(--text-quiet)" }} />
-      <p className="text-sm" style={{ color: "var(--text-muted)" }}>No schedules for this agent</p>
-      <Link href="/schedules" className="text-xs mt-2 inline-block" style={{ color: "var(--accent)" }}>
-        Create one in Schedules →
-      </Link>
-    </div>
-  );
+  const selectedJob = jobs.find((j) => j.id === selectedJobId) || null;
+  const state = selectedJob?.state || {} as any;
 
   const relTime = (ms: number) => {
     if (!ms) return "";
@@ -1209,78 +1197,136 @@ function SchedulesTab({ agentSlug }: { agentSlug: string }) {
     return `${Math.floor(d / 86_400_000)}d ago`;
   };
 
+  const healthIcon = (job: CronJob) => {
+    const s = job.state;
+    if (!s || !s.lastRunAtMs) return <Circle className="h-3 w-3" style={{ color: "var(--text-quiet)" }} />;
+    if (s.lastStatus === "ok") return <CheckCircle2 className="h-3 w-3 text-emerald-500" />;
+    return <XCircle className="h-3 w-3 text-red-500" />;
+  };
+
   return (
-    <div className="space-y-2">
-      {jobs.map((job: any) => {
-        const state = job.state || {};
-        const lastStatus = state.lastStatus;
-        const lastRunMs = state.lastRunAtMs;
-        const errors = state.consecutiveErrors || 0;
-        return (
-          <div
-            key={job.id}
-            className="flex items-center gap-3 rounded-xl border p-3"
-            style={{ borderColor: errors > 0 ? "var(--danger)" : "var(--border)", background: "var(--surface)", opacity: job.enabled ? 1 : 0.5 }}
+    <div className="flex h-full">
+      {/* ── Sidebar ── */}
+      <div className="w-[220px] shrink-0 border-r flex flex-col" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
+        <div className="p-3 pb-2">
+          <Link
+            href="/schedules"
+            className="flex items-center gap-2 w-full rounded-lg px-3 py-2 text-xs font-medium transition-fast"
+            style={{ background: "var(--accent-soft)", color: "var(--accent)" }}
           >
-            {/* Health indicator */}
-            <span className="shrink-0">
-              {!lastStatus ? (
-                <Circle className="h-3 w-3" style={{ color: "var(--text-quiet)" }} />
-              ) : lastStatus === "ok" || lastStatus === "success" ? (
-                <CheckCircle2 className="h-3 w-3 text-emerald-500" />
-              ) : (
-                <XCircle className="h-3 w-3 text-red-500" />
+            <Plus className="h-3.5 w-3.5" /> Manage schedules
+          </Link>
+        </div>
+        <div className="flex-1 overflow-y-auto px-2">
+          {loading ? <div className="py-4 text-center"><Spinner /></div> : jobs.length === 0 ? (
+            <p className="px-2 py-4 text-[11px] text-center" style={{ color: "var(--text-quiet)" }}>No schedules for this agent</p>
+          ) : jobs.map((job) => (
+            <button
+              key={job.id}
+              onClick={() => setSelectedJobId(job.id)}
+              className={cn(
+                "flex items-center gap-2 w-full rounded-lg px-2.5 py-2 mb-0.5 text-left text-[12px] transition-fast",
+                selectedJobId === job.id ? "bg-[color:var(--surface-muted)]" : "hover:bg-[color:var(--surface-muted)]",
               )}
-            </span>
-            <div className="min-w-0 flex-1">
-              <p className="text-sm font-medium" style={{ color: "var(--text)" }}>{job.name}</p>
-              {job.description && <p className="text-xs truncate" style={{ color: "var(--text-muted)" }}>{job.description}</p>}
-              <div className="flex items-center gap-2 mt-0.5">
-                <span className="text-[11px]" style={{ color: "var(--text-quiet)" }}>
+            >
+              <span className="shrink-0">{healthIcon(job)}</span>
+              <div className="min-w-0 flex-1">
+                <p className="font-medium truncate" style={{ color: selectedJobId === job.id ? "var(--text)" : "var(--text-muted)" }}>{job.name}</p>
+                <p className="text-[10px]" style={{ color: "var(--text-quiet)" }}>
                   {job.schedule?.expr || job.schedule?.every || "No schedule"}
-                </span>
-                {lastRunMs > 0 && (
-                  <span className="text-[10px]" style={{ color: "var(--text-quiet)" }}>
-                    · ran {relTime(lastRunMs)}
-                  </span>
-                )}
-                {errors > 0 && (
-                  <span className="text-[10px] rounded px-1 font-medium bg-red-50 text-red-600 dark:bg-red-900/20 dark:text-red-400">
-                    {errors} error{errors > 1 ? "s" : ""}
-                  </span>
+                </p>
+              </div>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* ── Main pane ── */}
+      <div className="flex-1 flex flex-col min-w-0">
+        <div className="flex-1 overflow-y-auto">
+          {!selectedJob ? (
+            <div className="flex flex-col items-center justify-center h-full text-center">
+              <Clock className="h-10 w-10 mb-3" style={{ color: "var(--text-quiet)" }} />
+              <p className="text-sm font-medium" style={{ color: "var(--text)" }}>Select a schedule</p>
+              <p className="text-xs mt-1" style={{ color: "var(--text-quiet)" }}>Choose from the sidebar or create in Schedules</p>
+            </div>
+          ) : (
+            <div className="max-w-3xl mx-auto px-6 py-4 space-y-4">
+              {/* Header */}
+              <div className="flex items-center gap-3">
+                <span className="text-lg">{healthIcon(selectedJob)}</span>
+                <div className="min-w-0 flex-1">
+                  <h3 className="text-sm font-semibold" style={{ color: "var(--text)" }}>{selectedJob.name}</h3>
+                  {selectedJob.description && <p className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>{selectedJob.description}</p>}
+                </div>
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => { (selectedJob.enabled ? api.schedules.disable(selectedJob.id) : api.schedules.enable(selectedJob.id)).then(loadJobs).catch(console.error); }}
+                    className="rounded-lg border px-2.5 py-1 text-[11px] font-medium transition-fast"
+                    style={{ borderColor: "var(--border)", color: selectedJob.enabled ? "var(--text-muted)" : "var(--accent)" }}
+                  >
+                    {selectedJob.enabled ? "Disable" : "Enable"}
+                  </button>
+                  <button
+                    onClick={() => { api.schedules.run(selectedJob.id).then(loadJobs).catch(console.error); }}
+                    className="rounded-lg border px-2.5 py-1 text-[11px] font-medium transition-fast"
+                    style={{ borderColor: "var(--border)", color: "var(--accent)" }}
+                  >
+                    Run now
+                  </button>
+                </div>
+              </div>
+
+              {/* Status */}
+              <div className="rounded-xl border p-3" style={{ borderColor: state.consecutiveErrors > 0 ? "var(--danger)" : "var(--border)", background: "var(--surface)" }}>
+                <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-[12px]">
+                  <div><span style={{ color: "var(--text-quiet)" }}>Status: </span><span className={state.lastStatus === "ok" ? "text-emerald-600" : state.lastStatus === "error" ? "text-red-600" : ""} style={{ color: "var(--text)" }}>{selectedJob.enabled ? (state.lastStatus || "Not run yet") : "Disabled"}</span></div>
+                  <div><span style={{ color: "var(--text-quiet)" }}>Schedule: </span><span className="font-mono" style={{ color: "var(--text)" }}>{selectedJob.schedule?.expr || selectedJob.schedule?.every || "—"}</span></div>
+                  <div><span style={{ color: "var(--text-quiet)" }}>Timezone: </span><span style={{ color: "var(--text)" }}>{selectedJob.schedule?.tz || "UTC"}</span></div>
+                  <div><span style={{ color: "var(--text-quiet)" }}>Timeout: </span><span style={{ color: "var(--text)" }}>{selectedJob.payload?.timeoutSeconds ? `${selectedJob.payload.timeoutSeconds}s` : "default"}</span></div>
+                  {state.lastRunAtMs && <div><span style={{ color: "var(--text-quiet)" }}>Last run: </span><span style={{ color: "var(--text)" }}>{relTime(state.lastRunAtMs)}{state.lastDurationMs ? ` (${(state.lastDurationMs / 1000).toFixed(0)}s)` : ""}</span></div>}
+                  {state.nextRunAtMs && <div><span style={{ color: "var(--text-quiet)" }}>Next run: </span><span style={{ color: "var(--text)" }}>{new Date(state.nextRunAtMs).toLocaleString()}</span></div>}
+                  {state.consecutiveErrors > 0 && <div className="col-span-2"><span className="text-red-600 font-medium">{state.consecutiveErrors} consecutive error{state.consecutiveErrors > 1 ? "s" : ""}</span></div>}
+                </div>
+                {state.lastError && (
+                  <div className="mt-2 rounded-lg p-2 text-[11px] text-red-600 dark:text-red-400" style={{ background: "rgba(239,68,68,0.05)" }}>
+                    {state.lastError}
+                  </div>
                 )}
               </div>
-              {state.lastError && (
-                <p className="text-[10px] mt-0.5 text-red-600 dark:text-red-400 truncate">{state.lastError}</p>
+
+              {/* Prompt/message */}
+              {selectedJob.payload?.message && (
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-widest mb-1" style={{ color: "var(--text-quiet)" }}>Prompt</p>
+                  <pre className="text-[11px] font-mono whitespace-pre-wrap rounded-xl border p-3 max-h-[300px] overflow-auto" style={{ borderColor: "var(--border)", background: "var(--surface-muted)", color: "var(--text-muted)" }}>
+                    {selectedJob.payload.message}
+                  </pre>
+                </div>
               )}
+
+              {/* Config */}
+              <div className="flex items-center gap-3 text-[11px]" style={{ color: "var(--text-quiet)" }}>
+                <span>Model: {selectedJob.payload?.model || "default"}</span>
+                <span>Thinking: {selectedJob.payload?.thinking || "default"}</span>
+                {selectedJob.delivery?.mode && <span>Delivery: {selectedJob.delivery.mode} {selectedJob.delivery.channel ? `→ ${selectedJob.delivery.channel}` : ""}</span>}
+              </div>
             </div>
-            {/* Inline actions */}
-            <div className="flex items-center gap-1 shrink-0">
-              <button
-                onClick={() => {
-                  (job.enabled ? api.schedules.disable(job.id) : api.schedules.enable(job.id)).then(loadJobs).catch(console.error);
-                }}
-                className="rounded p-1.5 transition-fast hover:bg-[color:var(--surface-muted)]"
-                style={{ color: "var(--text-muted)" }}
-                title={job.enabled ? "Disable" : "Enable"}
-              >
-                {job.enabled ? <Square className="h-3 w-3" /> : <Play className="h-3 w-3" />}
-              </button>
-              <button
-                onClick={() => { api.schedules.run(job.id).then(loadJobs).catch(console.error); }}
-                className="rounded p-1.5 transition-fast hover:bg-[color:var(--surface-muted)]"
-                style={{ color: "var(--accent)" }}
-                title="Run now"
-              >
-                <RefreshCw className="h-3 w-3" />
-              </button>
+          )}
+        </div>
+
+        {/* Chat input — pinned bottom */}
+        {selectedJob && (
+          <div className="shrink-0 border-t" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
+            <div className="max-w-3xl mx-auto px-6 py-3">
+              <div className="flex items-center gap-2 text-[11px]" style={{ color: "var(--text-quiet)" }}>
+                <Link href="/schedules" style={{ color: "var(--accent)" }}>Edit in Schedules →</Link>
+                <span className="ml-auto">ID: {selectedJob.id.slice(0, 8)}...</span>
+              </div>
             </div>
           </div>
-        );
-      })}
-      <Link href="/schedules" className="text-xs" style={{ color: "var(--accent)" }}>
-        Manage all schedules →
-      </Link>
+        )}
+      </div>
     </div>
   );
 }
@@ -1292,7 +1338,7 @@ const DOC_FILTERS: Array<{ key: DocFilter; label: string }> = [
   { key: "uploaded", label: "Uploaded" },
 ];
 
-function DocsTab({ agentId, agentSlug }: { agentId: string; agentSlug: string }) {
+function DocsTab({ agentId, agentSlug, agent }: { agentId: string; agentSlug: string; agent: ExecutiveAgent }) {
   const [docs, setDocs] = useState<DocumentItem[]>([]);
   const [selectedDocId, setSelectedDocId] = useState<string | null>(null);
   const [selectedDoc, setSelectedDoc] = useState<DocumentItem | null>(null);
@@ -1302,6 +1348,8 @@ function DocsTab({ agentId, agentSlug }: { agentId: string; agentSlug: string })
   const [editContent, setEditContent] = useState("");
   const [saving, setSaving] = useState(false);
   const [newTitle, setNewTitle] = useState("");
+  const [docQuestion, setDocQuestion] = useState("");
+  const [askingSending, setAskingSending] = useState(false);
 
   const loadDocs = () => {
     api.documents.list(agentId).then((d) => {
@@ -1355,6 +1403,26 @@ function DocsTab({ agentId, agentSlug }: { agentId: string; agentSlug: string })
         setSelectedDocId(remaining.length > 0 ? remaining[0].id : null);
       }
     } catch (e) { console.error(e); }
+  };
+
+  const handleAskAboutDoc = async () => {
+    const q = docQuestion.trim();
+    if (!q || !selectedDoc) return;
+    setAskingSending(true);
+    try {
+      // Create or get a thread, then send the question with doc context
+      const threads = await api.chatThreads.list(agentId);
+      let threadId: string;
+      if (threads.length > 0) {
+        threadId = threads[0].id;
+      } else {
+        const thread = await api.chatThreads.create(agentId);
+        threadId = thread.id;
+      }
+      await api.chatThreads.send(threadId, `Regarding the document "${selectedDoc.title}":\n\n${q}`);
+      setDocQuestion("");
+    } catch (e) { console.error(e); }
+    finally { setAskingSending(false); }
   };
 
   const relTime = (iso: string) => {
@@ -1492,13 +1560,19 @@ function DocsTab({ agentId, agentSlug }: { agentId: string; agentSlug: string })
                   const mime = selectedDoc.mime_type || "";
                   if (mime.startsWith("image/")) return <img src={downloadUrl} alt={selectedDoc.title} className="max-w-full max-h-[500px] rounded-lg border" style={{ borderColor: "var(--border)" }} />;
                   if (mime.includes("pdf")) return <iframe src={downloadUrl} className="w-full rounded-lg border" style={{ height: "600px", borderColor: "var(--border)" }} title={selectedDoc.title} />;
-                  const isOffice = ["application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "application/vnd.ms-excel", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "application/vnd.ms-powerpoint", "application/vnd.openxmlformats-officedocument.presentationml.presentation"].includes(mime);
-                  if (isOffice) return <iframe src={`https://docs.google.com/gview?url=${encodeURIComponent(downloadUrl)}&embedded=true`} className="w-full rounded-lg border" style={{ height: "600px", borderColor: "var(--border)" }} title={selectedDoc.title} />;
+                  // Office docs and other non-previewable files
+                  const ext = (selectedDoc.title || "").toLowerCase().split(".").pop() || "";
+                  const fileIcon = ["doc", "docx"].includes(ext) ? "📝" : ["xls", "xlsx"].includes(ext) ? "📊" : ["ppt", "pptx"].includes(ext) ? "📽️" : "📄";
                   return (
-                    <div className="py-8 text-center">
-                      <FileText className="mx-auto h-12 w-12 mb-3" style={{ color: "var(--text-quiet)" }} />
-                      <p className="text-sm font-medium" style={{ color: "var(--text)" }}>{selectedDoc.title}</p>
-                      <p className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>{mime}</p>
+                    <div className="flex flex-col items-center justify-center py-16 text-center">
+                      <span className="text-4xl mb-3">{fileIcon}</span>
+                      <p className="text-sm font-semibold" style={{ color: "var(--text)" }}>{selectedDoc.title}</p>
+                      <p className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
+                        {ext.toUpperCase()} · {selectedDoc.file_size ? `${(selectedDoc.file_size / 1024).toFixed(0)}KB` : mime}
+                      </p>
+                      <p className="text-xs mt-3" style={{ color: "var(--text-quiet)" }}>
+                        Ask a question about this document below
+                      </p>
                     </div>
                   );
                 })()
@@ -1509,29 +1583,48 @@ function DocsTab({ agentId, agentSlug }: { agentId: string; agentSlug: string })
           )}
         </div>
 
-        {/* Action input — pinned bottom */}
-        {selectedDoc && isMarkdown && (
+        {/* Chat input — pinned bottom, always visible when doc selected */}
+        {selectedDoc && (
           <div className="shrink-0 border-t" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
             <div className="max-w-3xl mx-auto px-6 py-3">
-              <div className="rounded-xl border overflow-hidden" style={{ borderColor: "var(--border)", background: "var(--bg)" }}>
+              <div className="rounded-2xl border overflow-hidden" style={{ borderColor: "var(--border)", background: "var(--bg)" }}>
                 <textarea
-                  className="w-full resize-none px-4 py-2.5 text-[13px] bg-transparent focus:outline-none"
-                  style={{ color: "var(--text)", maxHeight: "200px" }}
-                  rows={3}
-                  placeholder="Edit document content..."
-                  value={editContent}
-                  onChange={(e) => setEditContent(e.target.value)}
+                  className="w-full resize-none px-4 pt-3 pb-1 text-[13px] bg-transparent focus:outline-none"
+                  style={{ color: "var(--text)", maxHeight: "120px" }}
+                  rows={1}
+                  placeholder={`Ask ${agent.persona_name || agent.display_name} about this document...`}
+                  value={docQuestion}
+                  onChange={(e) => setDocQuestion(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey && docQuestion.trim()) {
+                      e.preventDefault();
+                      handleAskAboutDoc();
+                    }
+                  }}
                 />
-                <div className="flex items-center justify-between px-3 pb-2">
-                  <span className="text-[10px]" style={{ color: "var(--text-quiet)" }}>
-                    {hasChanged ? "Unsaved changes" : "No changes"}
-                  </span>
+                <div className="flex items-center justify-between px-3 pb-2 pt-1">
+                  {isMarkdown && hasChanged ? (
+                    <button
+                      onClick={handleSave}
+                      disabled={saving}
+                      className="flex items-center gap-1 text-[10px] font-medium transition-fast"
+                      style={{ color: "var(--accent)" }}
+                    >
+                      <Save className="h-3 w-3" /> {saving ? "Saving..." : "Save edits"}
+                    </button>
+                  ) : (
+                    <span className="text-[10px]" style={{ color: "var(--text-quiet)" }}>
+                      {selectedDoc.title}
+                    </span>
+                  )}
                   <button
-                    onClick={handleSave}
-                    disabled={!hasChanged || saving}
-                    className="rounded-lg bg-[color:var(--accent)] px-3 py-1 text-[11px] font-medium text-white disabled:opacity-30"
+                    onClick={handleAskAboutDoc}
+                    disabled={!docQuestion.trim() || askingSending}
+                    className="rounded-xl p-1.5 transition-fast disabled:opacity-20"
+                    style={{ color: "var(--accent)" }}
+                    title="Send to chat"
                   >
-                    {saving ? "Saving..." : "Save"}
+                    <Send className="h-4 w-4" />
                   </button>
                 </div>
               </div>
