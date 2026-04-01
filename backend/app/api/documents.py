@@ -274,15 +274,17 @@ async def preview_document(
     if not doc.file_path or not settings.bridge_url:
         return {"html": "", "text": "", "preview_type": "unsupported"}
 
-    # Fetch file bytes from bridge
+    # Fetch file bytes from bridge using the file_path
     try:
+        import urllib.parse
         async with httpx.AsyncClient(timeout=15.0) as client:
             resp = await client.get(
-                f"{settings.bridge_url.rstrip('/')}/documents/{doc_id}/download",
+                f"{settings.bridge_url.rstrip('/')}/documents/serve",
                 headers={"X-Bridge-Token": settings.bridge_token},
+                params={"path": doc.file_path},
             )
         if resp.status_code != 200:
-            return {"html": "", "text": "Could not fetch file from bridge", "preview_type": "text"}
+            return {"html": "", "text": f"Could not fetch file (status {resp.status_code})", "preview_type": "text"}
         file_bytes = resp.content
     except Exception as exc:
         return {"html": "", "text": f"Error fetching file: {str(exc)[:200]}", "preview_type": "text"}
