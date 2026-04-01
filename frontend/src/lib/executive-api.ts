@@ -654,6 +654,8 @@ export const api = {
         method: "POST",
         body: JSON.stringify(data),
       }),
+    delete: (id: string) =>
+      execFetch<void>(`/api/v1/documents/${id}`, { method: "DELETE" }),
     downloadUrl: (id: string) => `${getApiBaseUrl()}/api/v1/documents/${id}/download`,
   },
 

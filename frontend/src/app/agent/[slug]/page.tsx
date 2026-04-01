@@ -23,6 +23,7 @@ import {
   ListTodo,
   MessageSquare,
   Paperclip,
+  Play,
   Plus,
   RefreshCw,
   Save,
@@ -174,9 +175,9 @@ export default function AgentWorkspacePage() {
           <div className={cn("flex-1", activeTab === "chat" ? "overflow-hidden" : "overflow-y-auto p-4")}>
             {activeTab === "chat" && <ChatTab agent={agent} />}
             {activeTab === "agent" && <AgentTab agent={agent} slug={slug} />}
-            {activeTab === "skills" && <SkillsTab agentId={agent.id} />}
+            {activeTab === "skills" && <SkillsTab agentId={agent.id} agentSlug={slug} />}
             {activeTab === "schedules" && <SchedulesTab agentSlug={slug} />}
-            {activeTab === "docs" && <DocsTab agentId={agent.id} />}
+            {activeTab === "docs" && <DocsTab agentId={agent.id} agentSlug={slug} />}
             {activeTab === "improvements" && <ImprovementsTab agentId={agent.id} agent={agent} />}
             {activeTab === "approvals" && <ApprovalsTab />}
             {activeTab === "review" && <WeeklyReviewTab />}
@@ -914,7 +915,7 @@ function HelperAgentsSection({ parentAgentId }: { parentAgentId: string }) {
   );
 }
 
-function SkillsTab({ agentId }: { agentId: string }) {
+function SkillsTab({ agentId, agentSlug }: { agentId: string; agentSlug: string }) {
   const [skills, setSkills] = useState<InstalledSkill[]>([]);
   const [mappings, setMappings] = useState<Array<{ id: string; skill_path: string; relevance: string }>>([]);
   const [loading, setLoading] = useState(true);
@@ -959,7 +960,7 @@ function SkillsTab({ agentId }: { agentId: string }) {
           </h4>
           <div className="space-y-1.5">
             {coreSkills.map((skill) => (
-              <SkillRow key={skill.encoded_path} skill={skill} mapped onToggle={() => handleRemove(skill.encoded_path)} />
+              <SkillRow key={skill.encoded_path} skill={skill} mapped onToggle={() => handleRemove(skill.encoded_path)} fromSlug={agentSlug} />
             ))}
           </div>
         </div>
@@ -983,7 +984,7 @@ function SkillsTab({ agentId }: { agentId: string }) {
         {showAll && (
           <div className="mt-2 space-y-1.5">
             {otherSkills.map((skill) => (
-              <SkillRow key={skill.encoded_path} skill={skill} mapped={false} onToggle={() => handleAdd(skill.encoded_path)} />
+              <SkillRow key={skill.encoded_path} skill={skill} mapped={false} onToggle={() => handleAdd(skill.encoded_path)} fromSlug={agentSlug} />
             ))}
           </div>
         )}
@@ -992,10 +993,10 @@ function SkillsTab({ agentId }: { agentId: string }) {
   );
 }
 
-function SkillRow({ skill, mapped, onToggle }: { skill: InstalledSkill; mapped: boolean; onToggle: () => void }) {
+function SkillRow({ skill, mapped, onToggle, fromSlug }: { skill: InstalledSkill; mapped: boolean; onToggle: () => void; fromSlug?: string }) {
   return (
     <div className="flex items-center gap-3 rounded-xl border p-3" style={{ borderColor: "var(--border)", background: "var(--surface)" }}>
-      <Link href={`/skills-editor/${skill.encoded_path}`} className="flex items-center gap-3 min-w-0 flex-1">
+      <Link href={`/skills-editor/${skill.encoded_path}${fromSlug ? `?from=agent/${fromSlug}` : ""}`} className="flex items-center gap-3 min-w-0 flex-1">
         <FileCode className="h-4 w-4 shrink-0" style={{ color: "var(--text-quiet)" }} />
         <div className="min-w-0 flex-1">
           <p className="text-sm font-medium" style={{ color: "var(--text)" }}>{skill.name}</p>
@@ -1029,8 +1030,23 @@ function SchedulesTab({ agentSlug }: { agentSlug: string }) {
     }).catch(console.error).finally(() => setLoading(false));
   }, [agentSlug]);
 
+  const loadJobs = () => {
+    api.schedules.list().then((resp) => {
+      const all = resp.jobs || [];
+      setJobs(all.filter((j: any) => j.agentId === agentSlug));
+    }).catch(console.error).finally(() => setLoading(false));
+  };
+
   if (loading) return <Spinner />;
-  if (jobs.length === 0) return <EmptyState text="No schedules for this agent" />;
+  if (jobs.length === 0) return (
+    <div className="py-12 text-center">
+      <Clock className="mx-auto h-8 w-8 mb-2" style={{ color: "var(--text-quiet)" }} />
+      <p className="text-sm" style={{ color: "var(--text-muted)" }}>No schedules for this agent</p>
+      <Link href="/schedules" className="text-xs mt-2 inline-block" style={{ color: "var(--accent)" }}>
+        Create one in Schedules →
+      </Link>
+    </div>
+  );
 
   const relTime = (ms: number) => {
     if (!ms) return "";
@@ -1051,7 +1067,7 @@ function SchedulesTab({ agentSlug }: { agentSlug: string }) {
           <div
             key={job.id}
             className="flex items-center gap-3 rounded-xl border p-3"
-            style={{ borderColor: "var(--border)", background: "var(--surface)", opacity: job.enabled ? 1 : 0.5 }}
+            style={{ borderColor: errors > 0 ? "var(--danger)" : "var(--border)", background: "var(--surface)", opacity: job.enabled ? 1 : 0.5 }}
           >
             {/* Health indicator */}
             <span className="shrink-0">
@@ -1081,13 +1097,31 @@ function SchedulesTab({ agentSlug }: { agentSlug: string }) {
                   </span>
                 )}
               </div>
+              {state.lastError && (
+                <p className="text-[10px] mt-0.5 text-red-600 dark:text-red-400 truncate">{state.lastError}</p>
+              )}
             </div>
-            <span className={cn(
-              "rounded px-1.5 py-0.5 text-[10px] font-medium",
-              job.enabled ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400" : "bg-slate-100 text-slate-500",
-            )}>
-              {job.enabled ? "Active" : "Disabled"}
-            </span>
+            {/* Inline actions */}
+            <div className="flex items-center gap-1 shrink-0">
+              <button
+                onClick={() => {
+                  (job.enabled ? api.schedules.disable(job.id) : api.schedules.enable(job.id)).then(loadJobs).catch(console.error);
+                }}
+                className="rounded p-1.5 transition-fast hover:bg-[color:var(--surface-muted)]"
+                style={{ color: "var(--text-muted)" }}
+                title={job.enabled ? "Disable" : "Enable"}
+              >
+                {job.enabled ? <Square className="h-3 w-3" /> : <Play className="h-3 w-3" />}
+              </button>
+              <button
+                onClick={() => { api.schedules.run(job.id).then(loadJobs).catch(console.error); }}
+                className="rounded p-1.5 transition-fast hover:bg-[color:var(--surface-muted)]"
+                style={{ color: "var(--accent)" }}
+                title="Run now"
+              >
+                <RefreshCw className="h-3 w-3" />
+              </button>
+            </div>
           </div>
         );
       })}
@@ -1105,7 +1139,7 @@ const DOC_FILTERS: Array<{ key: DocFilter; label: string }> = [
   { key: "all", label: "All" },
 ];
 
-function DocsTab({ agentId }: { agentId: string }) {
+function DocsTab({ agentId, agentSlug }: { agentId: string; agentSlug: string }) {
   const [docs, setDocs] = useState<DocumentItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<DocFilter>("generated");
@@ -1168,7 +1202,7 @@ function DocsTab({ agentId }: { agentId: string }) {
           {filtered.map((doc) => (
             <Link
               key={doc.id}
-              href={`/docs/${doc.id}`}
+              href={`/docs/${doc.id}?from=agent/${agentSlug}`}
               className="flex items-center gap-3 rounded-xl border px-3 py-2.5 transition-smooth hover:shadow-elevation-2"
               style={{ borderColor: "var(--border)", background: "var(--surface)" }}
             >

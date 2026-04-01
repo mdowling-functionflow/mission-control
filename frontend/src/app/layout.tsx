@@ -9,6 +9,7 @@ import { AuthProvider } from "@/components/providers/AuthProvider";
 import { QueryProvider } from "@/components/providers/QueryProvider";
 import { ThemeProvider } from "@/components/providers/ThemeProvider";
 import { GlobalLoader } from "@/components/ui/global-loader";
+import { ToastProvider } from "@/components/ui/toast";
 
 export const metadata: Metadata = {
   title: "Mission Control",
@@ -45,8 +46,10 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         <ThemeProvider>
           <AuthProvider>
             <QueryProvider>
-              <GlobalLoader />
-              {children}
+              <ToastProvider>
+                <GlobalLoader />
+                {children}
+              </ToastProvider>
             </QueryProvider>
           </AuthProvider>
         </ThemeProvider>

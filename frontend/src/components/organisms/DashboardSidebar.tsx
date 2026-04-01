@@ -8,6 +8,7 @@ import {
   Clock,
   FileCode,
   FileText,
+  LayoutDashboard,
   Lightbulb,
   Moon,
   Settings,
@@ -58,6 +59,11 @@ export function DashboardSidebar() {
       style={{ borderColor: "var(--border)", background: "var(--surface)" }}
     >
       <div className="flex-1 overflow-y-auto px-2 py-3">
+        {/* Overview */}
+        <nav className="mb-3">
+          <NavItem href="/overview" icon={<LayoutDashboard className="h-3.5 w-3.5" />} label="Overview" active={pathname === "/overview"} />
+        </nav>
+
         {/* Workspaces — PRIMARY */}
         <p className="px-3 pb-1.5 text-[9px] font-bold uppercase tracking-[0.15em]" style={{ color: "var(--text-quiet)" }}>
           Workspaces

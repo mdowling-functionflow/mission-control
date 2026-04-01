@@ -3,7 +3,7 @@
 export const dynamic = "force-dynamic";
 
 import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import ReactMarkdown from "react-markdown";
 import {
@@ -43,6 +43,8 @@ const STEPS: Array<{ key: WorkflowStep; label: string; icon: typeof FileCode }> 
 
 export default function SkillDetailPage() {
   const params = useParams();
+  const searchParams = useSearchParams();
+  const fromAgent = searchParams.get("from");
   const encodedPath = params.id as string;
 
   const [skill, setSkill] = useState<SkillDetail | null>(null);
@@ -148,8 +150,8 @@ export default function SkillDetailPage() {
       title={skill.name}
       description="Skill editor"
       headerActions={
-        <Link href="/skills-editor" className="flex items-center gap-1 text-sm text-slate-500 hover:text-slate-700">
-          <ArrowLeft className="h-4 w-4" /> Skills
+        <Link href={fromAgent ? `/${fromAgent}` : "/skills-editor"} className="flex items-center gap-1 text-sm text-slate-500 hover:text-slate-700">
+          <ArrowLeft className="h-4 w-4" /> {fromAgent ? "Back to workspace" : "Skills"}
         </Link>
       }
     >

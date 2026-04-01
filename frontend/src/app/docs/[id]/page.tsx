@@ -3,19 +3,24 @@
 export const dynamic = "force-dynamic";
 
 import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import ReactMarkdown from "react-markdown";
-import { ArrowLeft, Download, Eye, FileCode, FileText, Pencil } from "lucide-react";
+import { ArrowLeft, Download, Eye, FileCode, FileText, Pencil, Trash2 } from "lucide-react";
 
 import { SignedIn, SignedOut } from "@/auth/clerk";
 import { DashboardPageLayout } from "@/components/templates/DashboardPageLayout";
+import { useToast } from "@/components/ui/toast";
 import { api, type DocumentItem } from "@/lib/executive-api";
 import { getApiBaseUrl } from "@/lib/api-base";
 
 export default function DocDetailPage() {
   const params = useParams();
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const { toastSuccess, toastError } = useToast();
   const docId = params.id as string;
+  const fromAgent = searchParams.get("from"); // e.g., "agent/sales"
 
   const [doc, setDoc] = useState<DocumentItem | null>(null);
   const [loading, setLoading] = useState(true);
@@ -28,9 +33,18 @@ export default function DocDetailPage() {
       api.documents.get(docId).then((d) => {
         setDoc(d);
         setEditContent(d.content || "");
-      }).catch(console.error).finally(() => setLoading(false));
+      }).catch((e) => { console.error(e); toastError("Failed to load document"); }).finally(() => setLoading(false));
     }
   }, [docId]);
+
+  const handleDelete = async () => {
+    if (!doc) return;
+    try {
+      await api.documents.delete(doc.id);
+      toastSuccess("Document deleted");
+      router.push(fromAgent ? `/${fromAgent}` : "/docs");
+    } catch (e) { console.error(e); toastError("Failed to delete document"); }
+  };
 
   const handleSave = async () => {
     if (!doc) return;
@@ -76,8 +90,15 @@ export default function DocDetailPage() {
             {editing ? <Eye className="h-3.5 w-3.5" /> : <Pencil className="h-3.5 w-3.5" />}
             {editing ? "Preview" : "Edit"}
           </button>
-          <Link href="/docs" className="flex items-center gap-1 text-sm transition-smooth" style={{ color: "var(--text-quiet)" }}>
-            <ArrowLeft className="h-4 w-4" /> Docs
+          <button
+            onClick={handleDelete}
+            className="flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-fast hover:bg-red-50 dark:hover:bg-red-950/20"
+            style={{ borderColor: "var(--border)", color: "var(--danger, #ef4444)" }}
+          >
+            <Trash2 className="h-3.5 w-3.5" /> Delete
+          </button>
+          <Link href={fromAgent ? `/${fromAgent}` : "/docs"} className="flex items-center gap-1 text-sm transition-smooth" style={{ color: "var(--text-quiet)" }}>
+            <ArrowLeft className="h-4 w-4" /> {fromAgent ? "Back to workspace" : "Docs"}
           </Link>
         </div>
       }
