@@ -1287,9 +1287,9 @@ function SchedulesTab({ agentSlug }: { agentSlug: string }) {
 
 type DocFilter = "all" | "generated" | "uploaded";
 const DOC_FILTERS: Array<{ key: DocFilter; label: string }> = [
+  { key: "all", label: "All" },
   { key: "generated", label: "Generated" },
   { key: "uploaded", label: "Uploaded" },
-  { key: "all", label: "All" },
 ];
 
 function DocsTab({ agentId, agentSlug }: { agentId: string; agentSlug: string }) {
